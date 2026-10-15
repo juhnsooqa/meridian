@@ -887,7 +887,7 @@ link_nodes_via_bridge() {
     log "[3/5] Squad ${squad_name} только с мостом..."
     local squads squad_uuid
     squads=$(panel_api GET internal-squads) || return 1
-    squad_uuid=$(jq -r --arg n "$squad_name" '(.response.internalSquads // .response)[] | select(.name == $n) | .uuid' <<<"$squads" | head -1)
+    squad_uuid=$(jq -r --arg n "$squad_name" '.response.internalSquads[] | select(.name == $n) | .uuid' <<<"$squads" | head -1)
     if [ -n "$squad_uuid" ]; then
         warn "Squad ${squad_name} уже есть, использую его."
     else
