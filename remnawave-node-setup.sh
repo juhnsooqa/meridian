@@ -46,14 +46,60 @@ ask() { # ask "prompt" varname [default] - третий аргумент, даж
     local prompt="$1" __var="$2" default="${3:-}" reply
     if [ $# -ge 3 ]; then
         [ -n "$default" ] && prompt="$prompt [$default]"
-        read -rp "$prompt: " reply
+        read -rp "$prompt: " reply || true   # EOF -> берём умолчание
         reply="${reply:-$default}"
     else
-        read -rp "$prompt: " reply
+        # read на EOF возвращает 1 с пустым ответом: без этой проверки цикл крутился бы вечно
+        # при запуске без терминала (cron, ssh без tty, пайп).
+        read -rp "$prompt: " reply || { err "Нужен ответ, но ввода нет (запуск без терминала)."; exit 1; }
         while [ -z "$reply" ]; do
-            read -rp "$prompt (обязательно): " reply
+            read -rp "$prompt (обязательно): " reply || { err "Нужен ответ, но ввода нет."; exit 1; }
         done
     fi
+    printf -v "$__var" '%s' "$reply"
+}
+
+# SECRET_KEY вводится вслепую из панели: опечатка видна только потом, когда нода не подключится.
+# Поэтому спрашиваем дважды и показываем края ключа на подтверждение.
+ask_secret_key() {
+    local first second confirm
+    while true; do
+        ask_secret "SECRET_KEY ноды из панели Remnawave" first
+        ask_secret "Повторите SECRET_KEY" second
+        first=$(trim_value "$first"); second=$(trim_value "$second")
+        if [ "$first" != "$second" ]; then
+            err "Ключи не совпали (${#first} и ${#second} символов). Ещё раз."
+            continue
+        fi
+        [ "${#first}" -ge 16 ] || warn "Ключ короче 16 символов - в панели он длиннее, проверьте, что скопировали целиком."
+        echo -e "  ${BOLD}${first:0:8}${NC}…${BOLD}${first: -8}${NC}  (длина ${#first})"
+        read -rp "Всё верно? [Y/n]: " confirm
+        [[ "$confirm" =~ ^[Nn]$ ]] || break
+    done
+    SECRET_KEY="$first"
+}
+
+# Ключ и домен почти всегда вставляют мышкой, а с ними приезжают \r и пробелы по краям:
+# в env_file они уедут внутрь значения, и нода молча не пройдёт аутентификацию в панели.
+trim_value() {
+    local v="${1//$'\r'/}"
+    v="${v//$'\n'/}"
+    v="${v#"${v%%[![:space:]]*}"}"
+    printf '%s' "${v%"${v##*[![:space:]]}"}"
+}
+
+is_menu_number() { # is_menu_number значение максимум
+    [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le "$2" ] && return 0
+    err "Нужен номер от 1 до $2, а не «$1»."
+    return 1
+}
+
+ask_secret() { # ask_secret "prompt" varname - ввод без эха, чтобы секрет не оставался в скроллбэке
+    local prompt="$1" __var="$2" reply
+    read -rsp "$prompt: " reply || { echo; err "Секрет нужен, но ввода нет (запуск без терминала)."; exit 1; }; echo
+    while [ -z "$reply" ]; do
+        read -rsp "$prompt (обязательно): " reply || { echo; err "Секрет нужен, но ввода нет."; exit 1; }; echo
+    done
     printf -v "$__var" '%s' "$reply"
 }
 
@@ -62,23 +108,29 @@ load_common_vars() {
     if [ -z "${DOMAIN:-}" ]; then
         ask "Домен ноды (например node1.example.com)" DOMAIN
     fi
-    if [ -z "${EMAIL:-}" ]; then
+    # ${EMAIL+x}, а не -z: пустой email - это осознанный выбор, записанный в state,
+    # иначе скрипт переспрашивал бы его при каждом запуске любой функции
+    if [ -z "${EMAIL+x}" ]; then
         ask "Email для Let's Encrypt (пусто = без email)" EMAIL ""
     fi
     if [ -z "${SECRET_KEY:-}" ]; then
         SECRET_KEY="$(panel_secret_key)" && [ -n "$SECRET_KEY" ] && log "SECRET_KEY получен из панели по API."
     fi
-    if [ -z "${SECRET_KEY:-}" ]; then
-        ask "SECRET_KEY ноды из панели Remnawave" SECRET_KEY
-    fi
+    [ -z "${SECRET_KEY:-}" ] && ask_secret_key
     if [ -z "${NODE_PORT:-}" ]; then
         ask "Порт ноды (NODE_PORT, панель ходит на него)" NODE_PORT "2222"
     fi
+    DOMAIN=$(trim_value "$DOMAIN")
+    EMAIL=$(trim_value "$EMAIL")
+    SECRET_KEY=$(trim_value "$SECRET_KEY")
+    NODE_PORT=$(trim_value "$NODE_PORT")
+
+    # %q, а не кавычки: файл потом source-ится от root, и кавычка или $(…) в значении стала бы командой
     cat > "$STATE_FILE" <<EOF
-DOMAIN="$DOMAIN"
-EMAIL="$EMAIL"
-SECRET_KEY="$SECRET_KEY"
-NODE_PORT="$NODE_PORT"
+DOMAIN=$(printf '%q' "$DOMAIN")
+EMAIL=$(printf '%q' "$EMAIL")
+SECRET_KEY=$(printf '%q' "$SECRET_KEY")
+NODE_PORT=$(printf '%q' "$NODE_PORT")
 EOF
     chmod 600 "$STATE_FILE"
 }
@@ -90,6 +142,9 @@ setup_firewall() {
     load_common_vars
     log "Установка и настройка UFW..."
     apt update -y && apt install -y ufw
+    # Явно, а не на дефолт Ubuntu: на обжитой машине политику мог изменить предыдущий админ
+    ufw default deny incoming
+    ufw default allow outgoing
     ufw allow OpenSSH
     ufw allow "${NODE_PORT}/tcp"
     ufw allow 80/tcp
@@ -125,10 +180,17 @@ block_icmp() {
 ### ---------------------------------------------------------------------
 install_nginx() {
     log "Установка nginx mainline (nginx.org)..."
+    # Шапка обещает Ubuntu/Debian: на Debian нет пакета ubuntu-keyring, и репозиторий у nginx.org другой
+    local distro keyring
+    distro=$(. /etc/os-release 2>/dev/null; echo "${ID:-ubuntu}")
+    case "$distro" in
+        debian) keyring=debian-archive-keyring ;;
+        *)      distro=ubuntu; keyring=ubuntu-keyring ;;
+    esac
     apt update -y
-    apt install -y curl gnupg2 ca-certificates lsb-release ubuntu-keyring
+    apt install -y curl gnupg2 ca-certificates lsb-release "$keyring" || { err "Не удалось поставить зависимости nginx."; return 1; }
     curl -fsSL https://nginx.org/keys/nginx_signing.key | gpg --dearmor | tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
-    echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/ubuntu $(lsb_release -cs) nginx" \
+    echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/${distro} $(lsb_release -cs) nginx" \
         | tee /etc/apt/sources.list.d/nginx.list >/dev/null
     printf 'Package: *\nPin: origin nginx.org\nPin: release o=nginx\nPin-Priority: 900\n' \
         | tee /etc/apt/preferences.d/99nginx >/dev/null
@@ -164,7 +226,12 @@ issue_ssl() {
     [ -n "$EMAIL" ] && email_args=(--email "$EMAIL")
 
     # Старый xray.conf со ссылкой на несуществующий сертификат валит `nginx -t` внутри certbot.
-    # configure_nginx всё равно перепишет его после выпуска.
+    # Убираем его на время выпуска, но с возвратом: при провале certbot нода иначе осталась бы
+    # вообще без 443/9443 до следующего успешного прогона.
+    local saved_conf=""
+    if [ -f /etc/nginx/conf.d/xray.conf ]; then
+        saved_conf=$(mktemp) && cp /etc/nginx/conf.d/xray.conf "$saved_conf"
+    fi
     rm -f /etc/nginx/conf.d/xray.conf
 
     # certonly: только выпуск, SSL-конфиг пишет configure_nginx
@@ -172,8 +239,14 @@ issue_ssl() {
         warn "certbot не смог выпустить сертификат автоматически."
         warn "Проверьте, что A-запись $DOMAIN указывает на этот сервер, затем выполните вручную:"
         warn "  certbot --nginx -d $DOMAIN"
+        if [ -n "$saved_conf" ]; then
+            cp "$saved_conf" /etc/nginx/conf.d/xray.conf && rm -f "$saved_conf"
+            nginx -t &>/dev/null && systemctl reload nginx
+            warn "Прежний xray.conf возвращён на место."
+        fi
         return 1
     fi
+    [ -n "$saved_conf" ] && rm -f "$saved_conf"
     log "Сертификат выпущен."
 }
 
@@ -242,9 +315,14 @@ install_docker() {
         return 0
     fi
     log "Установка Docker..."
-    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-    sh /tmp/get-docker.sh
-    rm -f /tmp/get-docker.sh
+    local installer
+    installer=$(mktemp) || return 1
+    if curl -fsSL https://get.docker.com -o "$installer"; then
+        sh "$installer"
+    else
+        err "Не удалось скачать установщик Docker."
+    fi
+    rm -f "$installer"
 }
 
 setup_remnanode() {
@@ -252,17 +330,49 @@ setup_remnanode() {
     log "Установка remnanode в ${NODE_DIR}..."
     mkdir -p "$NODE_DIR"
 
-    cat > "${NODE_DIR}/.env" <<EOF
-NODE_PORT=${NODE_PORT}
-SECRET_KEY=${SECRET_KEY}
-EOF
+    # env_file читает docker, а не bash, и кавычки в нём работают иначе. Поэтому: чистые значения
+    # пишем как есть (понимает любая версия compose), а значение со спецсимволами - в одинарных
+    # кавычках с экранированием (их снимает compose v2) и говорим об этом вслух.
+    local key port
+    key=$(trim_value "$SECRET_KEY")
+    port=$(trim_value "$NODE_PORT")
+    [[ "$port" =~ ^[0-9]+$ ]] || { err "NODE_PORT должен быть числом, а не «${port}»."; return 1; }
+    [ -n "$key" ] || { err "SECRET_KEY пустой."; return 1; }
 
-    wget -qO "${NODE_DIR}/geoip.dat"   https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
-    wget -qO "${NODE_DIR}/geosite.dat" https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
+    if [[ "$key" =~ ^[A-Za-z0-9._:/+=-]+$ ]]; then
+        printf 'NODE_PORT=%s\nSECRET_KEY=%s\n' "$port" "$key" > "${NODE_DIR}/.env"
+    else
+        warn "В SECRET_KEY есть необычные символы - записываю в кавычках (нужен docker compose v2)."
+        printf 'NODE_PORT=%s\nSECRET_KEY='\''%s'\''\n' "$port" "${key//\'/\'\\\'\'}" > "${NODE_DIR}/.env"
+    fi
+    # SECRET_KEY - это то, чем панель аутентифицируется в ноде. 0644 по умолчанию означает,
+    # что его прочитает любой непривилегированный процесс, включая воркер nginx.
+    chmod 600 "${NODE_DIR}/.env"
+    chmod 750 "$NODE_DIR"
+
+    # Скачиваем через .new: оборванная закачка иначе оставит пустой .dat, с которым xray не стартует
+    local dat
+    for dat in geoip geosite; do
+        if wget -qO "${NODE_DIR}/${dat}.dat.new" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/${dat}.dat" \
+           && [ -s "${NODE_DIR}/${dat}.dat.new" ]; then
+            mv -f "${NODE_DIR}/${dat}.dat.new" "${NODE_DIR}/${dat}.dat"
+        else
+            rm -f "${NODE_DIR}/${dat}.dat.new"
+            err "Не удалось скачать ${dat}.dat - без него xray на ноде не запустится."
+            return 1
+        fi
+    done
 
     # NB: важно смонтировать именно /dev/shm целиком (а не только .env/.dat) -
     # xhttp-инбаунд слушает unix-сокет в /dev/shm внутри контейнера, и без этого
     # монтирования nginx на хосте не увидит сокет (502 Bad Gateway).
+    # geo-файлы монтируются в XRAY_LOCATION_ASSET (/usr/local/share/xray), иначе xray их не найдёт
+    # и не стартует на правилах ext:/geosite:. Монтируем пофайлово: каталогом перекрыли бы встроенные.
+    # roscom.dat сюда же, если его уже настраивали - иначе перезапись compose молча снесёт монтирование.
+    local roscom_mount=""
+    [ -f "${NODE_DIR}/roscom.dat" ] && roscom_mount="
+      - ${NODE_DIR}/roscom.dat:/usr/local/share/xray/roscom.dat"
+
     cat > "${NODE_DIR}/docker-compose.yml" <<EOF
 services:
   remnanode:
@@ -273,8 +383,8 @@ services:
     restart: always
     volumes:
       - /dev/shm:/dev/shm
-      - ${NODE_DIR}/geoip.dat:/opt/remnanode/geoip.dat
-      - ${NODE_DIR}/geosite.dat:/opt/remnanode/geosite.dat
+      - ${NODE_DIR}/geoip.dat:/usr/local/share/xray/geoip.dat
+      - ${NODE_DIR}/geosite.dat:/usr/local/share/xray/geosite.dat${roscom_mount}
     env_file:
       - ${NODE_DIR}/.env
 EOF
@@ -378,9 +488,9 @@ write_panel_reference_files() {
     { "tag": "BLOCK", "protocol": "blackhole" }${psi_out}
   ],
   "routing": {
-    "rules": [${psi_rule}
-      { "ip": ["ext:geoip.dat:ru"], "type": "field", "outboundTag": "DIRECT" },
-      { "type": "field", "protocol": ["bittorrent"], "outboundTag": "BLOCK" }
+    "rules": [
+      { "type": "field", "protocol": ["bittorrent"], "outboundTag": "BLOCK" },${psi_rule}
+      { "ip": ["ext:geoip.dat:ru"], "type": "field", "outboundTag": "DIRECT" }
     ],
     "domainStrategy": "IPIfNonMatch"
   }
@@ -544,7 +654,7 @@ EOF
 EOF
     log "Связка нод и балансер: panel-bridge-inbound / panel-entry-routing / panel-balancer-template (.reference.json)"
     log "Куски дописываются в УЖЕ существующие профили нод: инбаунд - выходной, outbound+правила - входной."
-    warn "Если эта нода будет выходной в связке - откройте порт моста: ufw allow ${bridge_port}/tcp (адрес для входной ноды: ${DOMAIN:-домен этой ноды})"
+    warn "Если эта нода будет выходной в связке - откройте порт моста: ufw allow ${bridge_port} (адрес для входной ноды: ${DOMAIN:-домен этой ноды})"
 }
 
 ### ---------------------------------------------------------------------
@@ -596,6 +706,9 @@ setup_roscom() {
     if [ ! -f "${work_dir}/docker-compose.yml" ]; then
         warn "Не найден ${work_dir}/docker-compose.yml."
         ask "Укажите директорию с docker-compose.yml ноды" work_dir "$NODE_DIR"
+        # Без compose дальше всё падает поштучно, а cron всё равно добавляется и каждую ночь
+        # запускает несуществующий скрипт - поэтому выходим сразу.
+        [ -f "${work_dir}/docker-compose.yml" ] || { err "В ${work_dir} нет docker-compose.yml - сначала установите ноду (пункт 1)."; return 1; }
     fi
 
     local roscom_file="${work_dir}/roscom.dat"
@@ -604,8 +717,18 @@ setup_roscom() {
     local container_name="remnanode"
     local download_url="https://github.com/hydraponique/roscomvpn-geosite/releases/latest/download/geosite.dat"
 
+    # Качаем во временный файл: wget -O усекает цель ДО передачи, и сорванная закачка
+    # оставила бы вместо рабочего roscom.dat ноль байт.
     log "[1/4] Скачивание roscom.dat..."
-    wget -q -O "$roscom_file" "$download_url" || { err "Не удалось скачать roscom.dat"; return 1; }
+    local tmp_dat
+    tmp_dat=$(mktemp) || return 1
+    if wget -q -O "$tmp_dat" "$download_url" && [ -s "$tmp_dat" ]; then
+        mv -f "$tmp_dat" "$roscom_file"
+    else
+        rm -f "$tmp_dat"
+        err "Не удалось скачать roscom.dat (прежний файл не тронут)."
+        return 1
+    fi
 
     log "[2/4] Проверка монтирования в docker-compose.yml..."
     if grep -q "roscom.dat" "$compose_file"; then
@@ -635,8 +758,9 @@ LOG_FILE="/var/log/roscom_update.log"
 exec >> "\$LOG_FILE" 2>&1
 echo "--- \$(date '+%Y-%m-%d %H:%M:%S') ---"
 
-TEMP_FILE="/tmp/roscom_temp_\$(date +%s).dat"
+TEMP_FILE="\$(mktemp)" || exit 1
 wget -q -O "\$TEMP_FILE" "\$DOWNLOAD_URL" || { echo "ОШИБКА: скачивание не удалось"; rm -f "\$TEMP_FILE"; exit 1; }
+[ -s "\$TEMP_FILE" ] || { echo "ОШИБКА: скачан пустой файл"; rm -f "\$TEMP_FILE"; exit 1; }
 
 if [ -f "\$TARGET_FILE" ] && [ "\$(md5sum "\$TARGET_FILE" | awk '{print \$1}')" == "\$(md5sum "\$TEMP_FILE" | awk '{print \$1}')" ]; then
     echo "Файл не изменился."
@@ -671,7 +795,15 @@ setup_psiphon() {
     local region args=()
     read -rp "Страна выхода Psiphon (DE или пул DE,NL,FR; Enter = авто): " region
     [ -n "$region" ] && args=(--region "$region")
-    bash <(curl -fsSL "${REPO_RAW}/psiphon/psiphon_install.sh") "${args[@]}" || { err "Установка Psiphon не удалась."; return 1; }
+    # Не `bash <(curl …)`: при 404 или обрыве curl отдаёт пустой поток, bash выполняет пустоту
+    # и выходит с 0 - установка «удалась», а vps-psiphon на машине нет.
+    local installer
+    installer=$(mktemp) || return 1
+    curl -fsSL -o "$installer" "${REPO_RAW}/psiphon/psiphon_install.sh" && [ -s "$installer" ] \
+        || { rm -f "$installer"; err "Не удалось скачать установщик Psiphon."; return 1; }
+    bash "$installer" "${args[@]}" || { rm -f "$installer"; err "Установка Psiphon не удалась."; return 1; }
+    rm -f "$installer"
+    command -v vps-psiphon &>/dev/null || { err "Установщик отработал, но команды vps-psiphon нет."; return 1; }
     # Пересобираем справочный профиль, чтобы в нём появился psiphon-out
     [ -f "${NODE_DIR}/panel-profile.reference.json" ] && write_panel_reference_files
     log "Psiphon установлен. Управление: allinone -> Psiphon, или напрямую: vps-psiphon"
@@ -712,11 +844,11 @@ need_jq() { command -v jq &>/dev/null || { apt update -y; apt install -y jq; }; 
 load_panel_vars() {
     [ -f "$PANEL_STATE" ] && source "$PANEL_STATE"
     [ -n "${PANEL_URL:-}" ]   || ask "URL панели (https://panel.example.com)" PANEL_URL
-    [ -n "${PANEL_TOKEN:-}" ] || ask "API-токен панели (в панели: Настройки -> API токены)" PANEL_TOKEN
+    [ -n "${PANEL_TOKEN:-}" ] || ask_secret "API-токен панели (в панели: Настройки -> API токены)" PANEL_TOKEN
     PANEL_URL="${PANEL_URL%/}"
     cat > "$PANEL_STATE" <<EOF
-PANEL_URL="$PANEL_URL"
-PANEL_TOKEN="$PANEL_TOKEN"
+PANEL_URL=$(printf '%q' "$PANEL_URL")
+PANEL_TOKEN=$(printf '%q' "$PANEL_TOKEN")
 EOF
     chmod 600 "$PANEL_STATE"
 }
@@ -761,6 +893,7 @@ register_node_in_panel() {
     ask "Номер" n "1"
 
     local tmpl
+    [ "$n" = "0" ] || is_menu_number "$n" "${#uuids[@]}" || return 1
     if [ "$n" = "0" ]; then
         [ -f "${NODE_DIR}/panel-profile.reference.json" ] || { err "Нет ${NODE_DIR}/panel-profile.reference.json"; return 1; }
         tmpl=$(cat "${NODE_DIR}/panel-profile.reference.json")
@@ -780,9 +913,19 @@ register_node_in_panel() {
     # Теги: pl2 -> finl1, ITALY_MILAN_TCP -> finl1_TCP (меняется всё до последнего "_").
     # SNI Reality (если в образце он есть) обязан указывать на домен ЭТОЙ ноды,
     # иначе клиент получит сертификат чужого домена и хендшейк развалится.
+    # Сначала строим карту старый тег -> новый, потом применяем её и к инбаундам, и к ссылкам
+    # routing.rules[].inboundTag: иначе правила указывали бы на теги, которых в профиле уже нет.
+    # Несколько инбаундов с тегом без "_" получают суффиксом свой прежний тег, чтобы не слиться в один.
     local newcfg
     newcfg=$(jq --arg p "$prefix" --arg d "$DOMAIN" '
-        .inbounds = [ .inbounds[] | .tag = (if (.tag | test("_")) then $p + "_" + (.tag | split("_") | last) else $p end) ]
+        ([.inbounds[].tag] | length) as $n
+        | ( [ .inbounds[] | { key: .tag, value:
+              (if (.tag | test("_")) then $p + "_" + (.tag | split("_") | last)
+               elif $n > 1 then $p + "_" + .tag
+               else $p end) } ] | from_entries ) as $map
+        | .inbounds = [ .inbounds[] | .tag = $map[.tag] ]
+        | (.routing.rules) |= (map(if has("inboundTag")
+              then .inboundTag = [ .inboundTag[] | $map[.] // . ] else . end))
         | walk(if type == "object" and has("serverNames") then .serverNames = [$d] else . end)
     ' <<<"$tmpl") || { err "Не удалось преобразовать конфиг образца."; return 1; }
 
@@ -795,10 +938,16 @@ register_node_in_panel() {
             [[ "$a" =~ ^[Nn]$ ]] || setup_psiphon
         fi
         if [ -r /etc/default/vps-psiphon ]; then
+            # sed, а не source: файл пишет сторонний установщик, и любая его строка в stdout
+            # уехала бы в значения вместо адреса с портом.
             local pb pp
-            read -r pb pp < <(. /etc/default/vps-psiphon; echo "${BIND:-172.17.0.1} ${SOCKS_PORT:-1080}")
+            pb=$(sed -n 's/^BIND=//p' /etc/default/vps-psiphon | tr -d '"'\''' | head -1)
+            pp=$(sed -n 's/^SOCKS_PORT=//p' /etc/default/vps-psiphon | tr -d '"'\''' | head -1)
+            [[ "$pb" =~ ^[0-9a-fA-F.:]+$ ]] || pb="172.17.0.1"
+            [[ "$pp" =~ ^[0-9]+$ ]] || pp=1080
             newcfg=$(jq --arg pb "$pb" --argjson pp "$pp" \
-                '(.outbounds[]? | select(.tag == "psiphon-out") | .settings) |= (.address = $pb | .port = $pp)' <<<"$newcfg")
+                '(.outbounds[]? | select(.tag == "psiphon-out") | .settings) |= (.address = $pb | .port = $pp)' <<<"$newcfg") \
+                || { err "Не удалось подставить адрес psiphon-out."; return 1; }
             log "psiphon-out направлен на ${pb}:${pp}."
         else
             warn "psiphon-out останется нерабочим - маршруты через него не пойдут."
@@ -833,10 +982,13 @@ register_node_in_panel() {
 link_nodes_via_bridge() {
     need_jq
     load_panel_vars
+    # Домен этой машины нужен в конце, чтобы понять, выходная нода тут или нет
+    [ -f "$STATE_FILE" ] && source "$STATE_FILE"
 
     local nodes count
     nodes=$(panel_api GET nodes) || return 1
     count=$(jq '.response | length' <<<"$nodes")
+    [[ "$count" =~ ^[0-9]+$ ]] || { err "Панель вернула список нод в неожиданном виде."; return 1; }
     [ "$count" -ge 2 ] || { err "В панели меньше двух нод - связывать нечего."; return 1; }
 
     echo -e "${BOLD}Ноды в панели:${NC}"
@@ -845,6 +997,8 @@ link_nodes_via_bridge() {
     local n_in n_out
     ask "Номер ВХОДНОЙ ноды (куда подключаются клиенты)" n_in
     ask "Номер ВЫХОДНОЙ ноды (куда уходит трафик)" n_out
+    # Число, а не что угодно: дальше значение идёт в $((...)), где подстановки исполняются
+    is_menu_number "$n_in" "$count" && is_menu_number "$n_out" "$count" || return 1
     [ "$n_in" != "$n_out" ] || { err "Входная и выходная нода должны быть разными."; return 1; }
 
     local in_node out_node
@@ -858,6 +1012,18 @@ link_nodes_via_bridge() {
     out_addr=$(jq -r '.address' <<<"$out_node")
     out_profile=$(jq -r '.configProfile.activeConfigProfileUuid // empty' <<<"$out_node")
     [ -n "$in_profile" ] && [ -n "$out_profile" ] || { err "У одной из нод не выбран профиль - свяжите её с профилем в панели."; return 1; }
+    # Один профиль на обе ноды = catch-all правило отправит выходную ноду в мост на саму себя
+    [ "$in_profile" != "$out_profile" ] || { err "У обеих нод один профиль - получится петля. Сделайте выходной ноде отдельный профиль."; return 1; }
+
+    # Профиль может быть общим для нескольких нод, и правка заденет их все
+    local shared
+    shared=$(jq -r --arg p "$in_profile" '[.response[] | select(.configProfile.activeConfigProfileUuid == $p) | .name] | join(", ")' <<<"$nodes")
+    if [ "$(jq -r --arg p "$in_profile" '[.response[] | select(.configProfile.activeConfigProfileUuid == $p)] | length' <<<"$nodes")" -gt 1 ]; then
+        warn "Профиль входной ноды общий для: ${shared}. Правило уведёт в мост трафик ВСЕХ этих нод."
+        local go
+        read -rp "Продолжить? [y/N]: " go
+        [[ "$go" =~ ^[Yy]$ ]] || return 0
+    fi
 
     local bport btag squad_name user_name
     ask "Порт моста на выходной ноде" bport "9999"
@@ -876,11 +1042,15 @@ link_nodes_via_bridge() {
     panel_api PATCH config-profiles "$(jq -n --arg u "$out_profile" --argjson c "$new_out_cfg" '{uuid:$u, config:$c}')" >/dev/null || return 1
 
     log "[2/5] Включаю ${btag} на ноде ${out_name}..."
-    local bridge_inbound_uuid active
-    bridge_inbound_uuid=$(panel_api GET "config-profiles/${out_profile}/inbounds" \
-        | jq -er --arg t "$btag" '.response.inbounds[] | select(.tag == $t) | .uuid' | head -1) \
+    # uuid инбаундов панель переприсваивает при каждом PATCH конфига, поэтому берём свежий список
+    # и сопоставляем по ТЕГАМ: иначе нода осталась бы с мёртвыми uuid, т.е. без своих инбаундов.
+    local out_inbounds bridge_inbound_uuid active was_active
+    was_active=$(jq -c '[.configProfile.activeInbounds[].tag]' <<<"$out_node")
+    out_inbounds=$(panel_api GET "config-profiles/${out_profile}/inbounds") || return 1
+    bridge_inbound_uuid=$(jq -er --arg t "$btag" '[.response.inbounds[] | select(.tag == $t) | .uuid][0] // empty' <<<"$out_inbounds") \
         || { err "Панель не отдала uuid инбаунда ${btag}."; return 1; }
-    active=$(jq -c --arg b "$bridge_inbound_uuid" '[(.configProfile.activeInbounds[].uuid), $b] | unique' <<<"$out_node")
+    active=$(jq -c --argjson prev "$was_active" --arg b "$bridge_inbound_uuid" \
+        '[.response.inbounds[] | select(.tag as $t | $prev | index($t)) | .uuid] + [$b] | unique' <<<"$out_inbounds")
     panel_api PATCH nodes "$(jq -n --arg u "$out_uuid" --arg p "$out_profile" --argjson ib "$active" \
         '{uuid:$u, configProfile:{activeConfigProfileUuid:$p, activeInbounds:$ib}}')" >/dev/null || return 1
 
@@ -892,16 +1062,23 @@ link_nodes_via_bridge() {
         warn "Squad ${squad_name} уже есть, использую его."
     else
         squad_uuid=$(panel_api POST internal-squads "$(jq -n --arg n "$squad_name" --arg b "$bridge_inbound_uuid" \
-            '{name:$n, inbounds:[$b]}')" | jq -r '.response.uuid') || return 1
+            '{name:$n, inbounds:[$b]}')" | jq -er '.response.uuid // empty') \
+            || { err "Панель не вернула uuid созданного squad."; return 1; }
     fi
 
     log "[4/5] Сервисный юзер ${user_name} (без лимита, до 2099)..."
     local sspass created_user
     sspass=$(head -c 18 /dev/urandom | base64 | tr -d '/+=' | cut -c1-24)
-    created_user=$(panel_api POST users "$(jq -n --arg u "$user_name" --arg s "$squad_uuid" --arg p "$sspass" \
-        '{username:$u, expireAt:"2099-01-01T00:00:00.000Z", trafficLimitBytes:0,
-          trafficLimitStrategy:"NO_RESET", status:"ACTIVE", ssPassword:$p, activeInternalSquads:[$s]}')") || {
-        err "Не удалось создать юзера. Если он уже есть - задайте другое имя или удалите старого в панели."; return 1; }
+    # Имя занято - переспрашиваем, а не падаем: шаги 1-3 уже применены к панели,
+    # и выход отсюда оставил бы связку недоделанной (мост есть, маршрута нет).
+    while true; do
+        created_user=$(panel_api POST users "$(jq -n --arg u "$user_name" --arg s "$squad_uuid" --arg p "$sspass" \
+            '{username:$u, expireAt:"2099-01-01T00:00:00.000Z", trafficLimitBytes:0,
+              trafficLimitStrategy:"NO_RESET", status:"ACTIVE", ssPassword:$p, activeInternalSquads:[$s]}')") && break
+        warn "Юзер ${user_name} не создан - скорее всего имя занято."
+        ask "Другое имя сервисного юзера (пусто = прервать)" user_name ""
+        [ -n "$user_name" ] || { err "Связка не завершена: мост на выходной ноде создан, маршрут на входной - нет."; return 1; }
+    done
     sspass=$(jq -r --arg p "$sspass" '.response.ssPassword // $p' <<<"$created_user")
 
     log "[5/5] Outbound и правило в профиль входной ноды ${in_name}..."
@@ -921,10 +1098,11 @@ link_nodes_via_bridge() {
     panel_api PATCH config-profiles "$(jq -n --arg u "$in_profile" --argjson c "$new_in_cfg" '{uuid:$u, config:$c}')" >/dev/null || return 1
 
     log "Готово: ${in_name} -> ${out_name} (${out_addr}:${bport}), правило для инбаундов $(jq -r 'join(", ")' <<<"$in_tags")."
+    # Инбаунд моста слушает tcp,udp - открываем оба, иначе UDP через мост молча не пойдёт
     if [ "${DOMAIN:-}" = "$out_addr" ]; then
-        ufw allow "${bport}/tcp" && log "Порт ${bport}/tcp открыт на этой (выходной) ноде."
+        ufw allow "${bport}" && log "Порт ${bport} (tcp+udp) открыт на этой (выходной) ноде."
     else
-        warn "На выходной ноде ${out_addr} откройте порт: ufw allow ${bport}/tcp"
+        warn "На выходной ноде ${out_addr} откройте порт: ufw allow ${bport}"
     fi
     warn "Трафик, который не поймали прежние правила профиля ${in_name}, теперь уходит в мост."
 }
@@ -955,7 +1133,24 @@ run_reverse_proxy_pro() {
 ### ---------------------------------------------------------------------
 ### Основная установка ноды одним вызовом
 ### ---------------------------------------------------------------------
+# Пароль задаёт сам passwd: скрипт его не видит, не хранит и не пишет в лог.
+change_root_password() {
+    if [ ! -t 0 ]; then
+        warn "Скрипт запущен без терминала - смену пароля root пропускаю. Смените вручную: passwd root"
+        return 0
+    fi
+    local a
+    read -rp "Сменить пароль root перед установкой? [Y/n]: " a
+    [[ "$a" =~ ^[Nn]$ ]] && return 0
+    until passwd root; do
+        read -rp "Пароль не сменён. Попробовать ещё раз? [Y/n]: " a
+        [[ "$a" =~ ^[Nn]$ ]] && { warn "Пароль root остался прежним."; return 0; }
+    done
+    log "Пароль root изменён."
+}
+
 full_install() {
+    change_root_password
     # Панель спрашиваем первой: по её API берётся SECRET_KEY, а в конце туда же добавляется нода.
     if [ ! -f "$PANEL_STATE" ]; then
         read -rp "Добавить ноду в панель автоматически по API (нужен токен)? [Y/n]: " a
@@ -975,8 +1170,6 @@ full_install() {
     setup_remnanode
     [ -f "$PANEL_STATE" ] && register_node_in_panel
     log "Базовая установка ноды завершена."
-    read -rp "Установить fail2ban сейчас? [Y/n]: " a
-    [[ "$a" =~ ^[Nn]$ ]] || install_fail2ban
     read -rp "Настроить roscom.dat сейчас? [Y/n]: " a
     [[ "$a" =~ ^[Nn]$ ]] || setup_roscom
 }
@@ -996,17 +1189,35 @@ EOF
 
 print_menu() {
     clear
-    echo -e "${CYAN}${BOLD}=== Remnawave Node Setup ===${NC}"
-    echo -e "  ${GREEN}1)${NC} Полная установка ноды (firewall+icmp+nginx+ssl+docker+remnanode)"
-    echo -e "  ${GREEN}2)${NC} fail2ban"
-    echo -e "  ${GREEN}3)${NC} roscom.dat + автообновление"
-    echo -e "  ${GREEN}6)${NC} Psiphon-выход (установка / управление)"
-    echo -e "  ${GREEN}7)${NC} Добавить ноду в панель (профиль из образца + нода)"
-    echo -e "  ${GREEN}8)${NC} Связать две ноды в панели (вход -> мост -> выход)"
-    echo -e "  ${YELLOW}4)${NC} [опционально, сторонний репо] node-accelerator"
-    echo -e "  ${YELLOW}5)${NC} [опционально, сторонний репо] remnawave-reverse-proxy-pro"
-    echo -e "  ${RED}0)${NC} Выход"
-    echo -ne "${BOLD}Выбор: ${NC}"
+    echo -e "${CYAN}${BOLD}  ╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}${BOLD}  ║            Remnawave Node Setup  ·  allinone             ║${NC}"
+    echo -e "${CYAN}${BOLD}  ╚══════════════════════════════════════════════════════════╝${NC}"
+
+    # Короткая сводка: что уже есть на этой машине
+    local dom="—" psi="нет" node="нет"
+    [ -f "$STATE_FILE" ] && dom=$(. "$STATE_FILE" 2>/dev/null; echo "${DOMAIN:-—}")
+    command -v vps-psiphon &>/dev/null && psi="есть"
+    [ -f "${NODE_DIR}/docker-compose.yml" ] && node="есть"
+    echo -e "  ${BOLD}домен:${NC} ${dom}    ${BOLD}нода:${NC} ${node}    ${BOLD}psiphon:${NC} ${psi}"
+    echo
+
+    echo -e "  ${BOLD}Установка${NC}"
+    echo -e "    ${GREEN}1)${NC} Полная установка ноды   ${CYAN}firewall, ICMP, nginx, SSL, docker, remnanode${NC}"
+    echo -e "    ${GREEN}2)${NC} fail2ban                ${CYAN}бан перебора SSH${NC}"
+    echo -e "    ${GREEN}3)${NC} roscom.dat              ${CYAN}списки РКН + автообновление в 03:00${NC}"
+    echo -e "    ${GREEN}6)${NC} Psiphon-выход           ${CYAN}SOCKS для гео-заблокированных сервисов${NC}"
+    echo
+    echo -e "  ${BOLD}Панель${NC}"
+    echo -e "    ${GREEN}7)${NC} Добавить ноду в панель  ${CYAN}профиль из образца + нода, по API${NC}"
+    echo -e "    ${GREEN}8)${NC} Связать две ноды        ${CYAN}вход → shadowsocks-мост → выход${NC}"
+    echo
+    echo -e "  ${BOLD}Стороннее${NC} ${YELLOW}(чужие установщики, запускаются как есть)${NC}"
+    echo -e "    ${YELLOW}4)${NC} node-accelerator        ${CYAN}оптимизация сети${NC}"
+    echo -e "    ${YELLOW}5)${NC} reverse-proxy-pro       ${CYAN}панель + reverse-proxy${NC}"
+    echo
+    echo -e "    ${RED}0)${NC} Выход"
+    echo
+    echo -ne "  ${BOLD}Выбор: ${NC}"
 }
 
 main() {
@@ -1026,7 +1237,7 @@ main() {
         "")
             while true; do
                 print_menu
-                read -r choice
+                read -r choice || { echo; log "Ввод закончился, выхожу."; exit 0; }
                 case "$choice" in
                     1) full_install ;;
                     2) install_fail2ban ;;
