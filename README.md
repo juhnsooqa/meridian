@@ -1,10 +1,25 @@
-# meridian
+<div align="center">
 
-Скрипт для настройки Remnawave-ноды: firewall, ICMP, nginx, SSL, Docker, remnanode, fail2ban, roscom.dat,
-Psiphon-выход, добавление ноды в панель по API и связка нод через shadowsocks-мост.
+# 🌐 meridian
+
+**Нода Remnawave под ключ — одной командой.**
+
+Firewall · ICMP · nginx + SSL · Docker · remnanode · fail2ban · roscom.dat
+Psiphon-выход · добавление ноды в панель по API · связка нод через shadowsocks-мост
+
+![bash](https://img.shields.io/badge/bash-4.4%2B-4EAA25?logo=gnubash&logoColor=white)
+![Ubuntu | Debian](https://img.shields.io/badge/Ubuntu%2020.04%2B%20%7C%20Debian%2011%2B-E95420?logo=linux&logoColor=white)
+![Remnawave](https://img.shields.io/badge/Remnawave-2.x-39c5cf)
+![Xray](https://img.shields.io/badge/Xray-VLESS%20%C2%B7%20Reality%20%C2%B7%20xhttp-6e40c9)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
+<img src="assets/menu.svg" alt="Меню meridian" width="760">
+
+</div>
+
 Собран из [remnawave-guide](https://github.com/herbalsomml/remnawave-guide) и части скриптов этого репозитория.
 
-## Запуск с сервера одной командой
+## 🚀 Запуск с сервера одной командой
 
 ```bash
 sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/juhnsooqa/meridian/main/remnawave-node-setup.sh)"
@@ -25,7 +40,7 @@ allinone            # меню
 allinone psiphon    # сразу меню Psiphon
 ```
 
-## Добавление ноды в панель (одна кнопка)
+## 🎛 Добавление ноды в панель (одна кнопка)
 
 `full` в начале спрашивает URL панели и API-токен (панель → Настройки → API токены) и дальше делает всё сам:
 
@@ -43,7 +58,7 @@ allinone psiphon    # сразу меню Psiphon
 Образцом может быть и локальный `panel-profile.reference.json`, но Reality-ключи в нём — заглушки, их придётся вписать в панели.
 Хосты скрипт не создаёт — см. ниже.
 
-## Настройка хостов в панели
+## 🧩 Настройка хостов в панели
 
 По мотивам [remnawave-guide](https://github.com/herbalsomml/remnawave-guide#настройки-tcp-хоста) (там же скриншоты).
 Скрипт печатает эти же настройки с вашим доменом и сохраняет их в `/opt/remnanode/panel-hosts.txt`.
@@ -73,7 +88,7 @@ allinone psiphon    # сразу меню Psiphon
 
 Для XHTTP ещё: **Xray Json & Raw → xHTTP** — вставить `/opt/remnanode/panel-xhttp-host-extra.reference.json`.
 
-## Связка нод и балансер
+## 🌉 Связка нод и балансер
 
 Скрипт кладёт в `/opt/remnanode/` готовые куски для вставки в панель. Автоматизации пока нет — всё руками в UI.
 
@@ -89,7 +104,11 @@ allinone psiphon    # сразу меню Psiphon
 5. дописывает в профиль **входной** ноды outbound `SS_OUTBOUND_TO_EXIT` с этим паролем и правило `inboundTag: [её инбаунды] → мост`.
 
 Правило ставится **в конец** `routing.rules`: сначала отрабатывают уже существующие правила профиля (roscom-списки, `psiphon-out` и прочее), а в мост уходит только то, что они не поймали. Повторный запуск на той же паре не плодит дубли — инбаунд, outbound и правило заменяются по тегу.
-Порт на выходной ноде скрипт откроет сам, если запущен на ней; иначе напомнит `ufw allow 9999/tcp`.
+Порт на выходной ноде скрипт откроет сам, если запущен на ней; иначе напомнит `ufw allow 9999`.
+
+<div align="center">
+<img src="assets/link.svg" alt="Связка нод: allinone link" width="760">
+</div>
 
 Руками то же самое — готовые куски для вставки:
 
@@ -102,13 +121,13 @@ allinone psiphon    # сразу меню Psiphon
 
 **Балансер** ([xray-json-advanced](https://docs.rw/learn/xray-json-advanced)) — это клиентский конфиг, а не нода: `panel-balancer-template.reference.json` вставляется в **Advanced → Xray JSON template** виртуального хоста. Балансируемые хосты надо скрыть (Hidden) и подставить их UUID в `injectHosts.selector.values`. Блок `remnawave` панель вырежет сама, подставив вместо него outbound'ы `proxy`, `proxy-2`, … — под них уже настроены `balancers.selector` и `burstObservatory.subjectSelector`. Нужна панель 2.6.3+.
 
-## Psiphon
+## 🛰 Psiphon
 
 Пункт меню 6 ставит Psiphon как SOCKS-выход для xray ([psiphon/psiphon_install.sh](psiphon/psiphon_install.sh), копия [Chara-Freedom/vps-psiphon](https://github.com/Chara-Freedom/vps-psiphon), MIT).
 Ставить только на зарубежную ноду. После установки в `/opt/remnanode/panel-profile.reference.json` добавляется аутбаунд `psiphon-out` и правило для `geosite:openai`/`geosite:google-gemini` (только TCP).
 Управление — через меню или напрямую `vps-psiphon {status|rotate|region CC|speed|logs|uninstall}`.
 
-## Как ходит трафик
+## 🧭 Как ходит трафик
 
 ```
     клиент
@@ -137,7 +156,7 @@ allinone psiphon    # сразу меню Psiphon
 
 Снаружи нода выглядит обычным сайтом: кто придёт на `https://домен` без нужного пути, увидит страницу-заглушку.
 
-## Что где лежит на сервере
+## 📂 Что где лежит на сервере
 
 | Путь | Что это |
 |---|---|
@@ -150,7 +169,7 @@ allinone psiphon    # сразу меню Psiphon
 | `/usr/local/bin/allinone` | команда-обёртка, тянет свежий скрипт с GitHub |
 | `/var/log/roscom_update.log` | лог ночного обновления roscom.dat |
 
-## Благодарности
+## 🙏 Благодарности
 
 | Проект | Что взято |
 |---|---|

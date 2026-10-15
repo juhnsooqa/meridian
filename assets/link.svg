@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400" viewBox="0 0 800 400" xml:space="preserve" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="14">
+  <defs>
+    <style>
+      .bg  { fill: #0d1117; }
+      .bar { fill: #161b22; }
+      .t   { fill: #c9d1d9; }
+      .dim { fill: #8b949e; }
+      .gr  { fill: #3fb950; }
+      .ye  { fill: #d29922; }
+      .b   { font-weight: 700; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="800" height="400" rx="10"/>
+  <path class="bar" d="M0 10a10 10 0 0 1 10-10h780a10 10 0 0 1 10 10v26H0z"/>
+  <circle cx="22" cy="18" r="6" fill="#f85149"/>
+  <circle cx="42" cy="18" r="6" fill="#d29922"/>
+  <circle cx="62" cy="18" r="6" fill="#3fb950"/>
+  <text class="dim" x="400" y="23" text-anchor="middle" font-size="12">root@finl5: ~ — allinone link</text>
+
+  <text x="24" y="72"><tspan class="dim"># </tspan><tspan class="t b">allinone link</tspan></text>
+
+  <text class="t b" x="24" y="104">Ноды в панели:</text>
+  <text class="t" x="24" y="126">  1) RU entry  [ru1.example.com]  профиль: in-prof</text>
+  <text class="t" x="24" y="148">  2) finl5     [finl5.fastcache.space]  профиль: out-prof</text>
+
+  <text x="24" y="180"><tspan class="t">Номер ВХОДНОЙ ноды (куда подключаются клиенты): </tspan><tspan class="t b">1</tspan></text>
+  <text x="24" y="202"><tspan class="t">Номер ВЫХОДНОЙ ноды (куда уходит трафик): </tspan><tspan class="t b">2</tspan></text>
+
+  <text x="24" y="238"><tspan class="gr b">[+]</tspan><tspan class="t"> [1/5] Инбаунд BRIDGE_finl5:9999 в профиль выходной ноды finl5...</tspan></text>
+  <text x="24" y="260"><tspan class="gr b">[+]</tspan><tspan class="t"> [2/5] Включаю BRIDGE_finl5 на ноде finl5...</tspan></text>
+  <text x="24" y="282"><tspan class="gr b">[+]</tspan><tspan class="t"> [3/5] Squad bridge-finl5 только с мостом...</tspan></text>
+  <text x="24" y="304"><tspan class="gr b">[+]</tspan><tspan class="t"> [4/5] Сервисный юзер bridge_RUentry_finl5 (без лимита, до 2099)...</tspan></text>
+  <text x="24" y="326"><tspan class="gr b">[+]</tspan><tspan class="t"> [5/5] Outbound и правило в профиль входной ноды RU entry...</tspan></text>
+
+  <text x="24" y="358"><tspan class="gr b">[+]</tspan><tspan class="t"> Готово: RU entry → finl5 (finl5.fastcache.space:9999)</tspan></text>
+  <text x="24" y="380"><tspan class="ye b">[!]</tspan><tspan class="t"> Порт 9999 (tcp+udp) открыт на этой (выходной) ноде.</tspan></text>
+</svg>
