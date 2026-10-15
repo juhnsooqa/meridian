@@ -289,6 +289,7 @@ EOF
 # Reality-ключи панель генерирует сама - сюда они не подставляются.
 write_panel_reference_files() {
     load_common_vars
+    mkdir -p "$NODE_DIR"
 
     # Если стоит vps-psiphon - добавляем его SOCKS-аутбаунд и правило (только TCP: UDP psiphon не умеет).
     local psi_out="" psi_rule="" psi_bind psi_port
@@ -417,6 +418,8 @@ EOF
   "scStreamUpServerSecs": "20-80"
 }
 EOF
+    write_routing_reference_files
+
     cat > "${NODE_DIR}/panel-hosts.txt" <<EOF
 Хосты в панели Remnawave (Хосты -> Создать). Для каждого выберите свой инбаунд и ноду.
 
@@ -439,6 +442,109 @@ EOF
     log "Справочные JSON для панели сохранены в ${NODE_DIR}/panel-*.reference.json, настройки хостов - ${NODE_DIR}/panel-hosts.txt"
     warn "Вставьте их вручную в настройки хостов/профиля Remnawave — путь и Host там уже проставлены на ${DOMAIN}."
     warn "ВАЖНО: в клиентской ссылке path обязан ТОЧНО совпадать (включая слеш на конце) с path на ноде: /xhttppath/"
+}
+
+# Связка нод (docs.rw/learn/server-routing) и балансер (docs.rw/learn/xray-json-advanced).
+# Ноды уже заведены в панели, поэтому это куски для ВСТАВКИ в их существующие профили,
+# а не новые профили: инбаунд-мост дописывается выходной ноде, outbound с правилами - входной.
+write_routing_reference_files() {
+    local bridge_port="${BRIDGE_PORT:-9999}"
+
+    # Выходная нода: дописать этот объект в "inbounds" её профиля.
+    # clients панель заполняет сама из сервисного юзера, пароль руками сюда не вписывается.
+    cat > "${NODE_DIR}/panel-bridge-inbound.reference.json" <<EOF
+{
+  "tag": "BRIDGE_IN",
+  "port": ${bridge_port},
+  "listen": "0.0.0.0",
+  "protocol": "shadowsocks",
+  "settings": { "clients": [], "network": "tcp,udp" },
+  "sniffing": { "enabled": true, "destOverride": ["http", "tls", "quic"] }
+}
+EOF
+
+    # Входная нода: outbound дописать в её "outbounds", rules - в начало её "routing.rules".
+    # Порядок правил важен: xray идёт сверху вниз, последнее правило - catch-all в мост.
+    cat > "${NODE_DIR}/panel-entry-routing.reference.json" <<EOF
+{
+  "outbound": {
+    "tag": "SS_OUTBOUND_TO_EXIT",
+    "protocol": "shadowsocks",
+    "settings": {
+      "servers": [
+        {
+          "address": "<АДРЕС ВЫХОДНОЙ НОДЫ>",
+          "port": ${bridge_port},
+          "password": "<SS Password сервисного юзера: Users -> More Actions -> Detailed Info>",
+          "level": 0,
+          "method": "chacha20-ietf-poly1305"
+        }
+      ]
+    }
+  },
+  "rules": [
+    { "type": "field", "ip": ["geoip:private"], "outboundTag": "BLOCK" },
+    { "type": "field", "domain": ["geosite:private"], "outboundTag": "BLOCK" },
+    { "type": "field", "protocol": ["bittorrent"], "outboundTag": "BLOCK" },
+    { "type": "field", "ip": ["geoip:ru"], "outboundTag": "DIRECT" },
+    { "type": "field", "domain": ["geosite:category-ru"], "outboundTag": "DIRECT" },
+    { "type": "field", "inboundTag": ["<ТЕГ ИНБАУНДА ВХОДНОЙ НОДЫ>"], "outboundTag": "SS_OUTBOUND_TO_EXIT" }
+  ]
+}
+EOF
+
+    # Балансер - это клиентский конфиг: шаблон подписки (Advanced -> Xray JSON template)
+    # на виртуальном хосте. Блок remnawave панель вырежет, подставив вместо него outbound'ы хостов.
+    cat > "${NODE_DIR}/panel-balancer-template.reference.json" <<'EOF'
+{
+  "remnawave": {
+    "injectHosts": [
+      {
+        "selector": { "type": "uuids", "values": ["<UUID СКРЫТОГО ХОСТА 1>", "<UUID СКРЫТОГО ХОСТА 2>"] },
+        "selectFrom": "HIDDEN",
+        "tagPrefix": "proxy"
+      }
+    ]
+  },
+  "log": { "loglevel": "warning" },
+  "dns": { "servers": ["https://dns.google/dns-query"], "queryStrategy": "UseIPv4" },
+  "inbounds": [],
+  "burstObservatory": {
+    "pingConfig": {
+      "timeout": "3s",
+      "interval": "1m",
+      "sampling": 1,
+      "destination": "https://connectivitycheck.gstatic.com/generate_204",
+      "connectivity": ""
+    },
+    "subjectSelector": ["proxy"]
+  },
+  "routing": {
+    "balancers": [
+      {
+        "tag": "balancer",
+        "selector": ["proxy"],
+        "strategy": {
+          "type": "leastLoad",
+          "settings": { "maxRTT": "1s", "expected": 2, "baselines": ["1s"], "tolerance": 0.01 }
+        },
+        "fallbackTag": "direct"
+      }
+    ],
+    "rules": [
+      { "type": "field", "protocol": ["bittorrent"], "outboundTag": "direct" },
+      { "type": "field", "network": "tcp,udp", "balancerTag": "balancer" }
+    ]
+  },
+  "outbounds": [
+    { "tag": "direct", "protocol": "freedom" },
+    { "tag": "block", "protocol": "blackhole" }
+  ]
+}
+EOF
+    log "Связка нод и балансер: panel-bridge-inbound / panel-entry-routing / panel-balancer-template (.reference.json)"
+    log "Куски дописываются в УЖЕ существующие профили нод: инбаунд - выходной, outbound+правила - входной."
+    warn "Если эта нода будет выходной в связке - откройте порт моста: ufw allow ${bridge_port}/tcp (адрес для входной ноды: ${DOMAIN:-домен этой ноды})"
 }
 
 ### ---------------------------------------------------------------------
@@ -721,6 +827,108 @@ register_node_in_panel() {
     warn "Хосты скрипт не создаёт - настройки для них в ${NODE_DIR}/panel-hosts.txt."
 }
 
+# Связка двух УЖЕ заведённых в панели нод (docs.rw/learn/server-routing):
+# инбаунд-мост в профиль выходной ноды -> internal squad с ним -> сервисный юзер ->
+# его SS-пароль в outbound профиля входной ноды + catch-all правило.
+link_nodes_via_bridge() {
+    need_jq
+    load_panel_vars
+
+    local nodes count
+    nodes=$(panel_api GET nodes) || return 1
+    count=$(jq '.response | length' <<<"$nodes")
+    [ "$count" -ge 2 ] || { err "В панели меньше двух нод - связывать нечего."; return 1; }
+
+    echo -e "${BOLD}Ноды в панели:${NC}"
+    jq -r '.response | to_entries[] | "  \(.key+1)) \(.value.name)  [\(.value.address)]  профиль: \(.value.configProfile.activeConfigProfileUuid // "нет")"' <<<"$nodes"
+
+    local n_in n_out
+    ask "Номер ВХОДНОЙ ноды (куда подключаются клиенты)" n_in
+    ask "Номер ВЫХОДНОЙ ноды (куда уходит трафик)" n_out
+    [ "$n_in" != "$n_out" ] || { err "Входная и выходная нода должны быть разными."; return 1; }
+
+    local in_node out_node
+    in_node=$(jq -e ".response[$((n_in-1))]" <<<"$nodes")  || { err "Нет ноды с номером $n_in."; return 1; }
+    out_node=$(jq -e ".response[$((n_out-1))]" <<<"$nodes") || { err "Нет ноды с номером $n_out."; return 1; }
+
+    local in_uuid in_name in_profile out_uuid out_name out_addr out_profile
+    in_uuid=$(jq -r '.uuid' <<<"$in_node");   in_name=$(jq -r '.name' <<<"$in_node")
+    in_profile=$(jq -r '.configProfile.activeConfigProfileUuid // empty' <<<"$in_node")
+    out_uuid=$(jq -r '.uuid' <<<"$out_node"); out_name=$(jq -r '.name' <<<"$out_node")
+    out_addr=$(jq -r '.address' <<<"$out_node")
+    out_profile=$(jq -r '.configProfile.activeConfigProfileUuid // empty' <<<"$out_node")
+    [ -n "$in_profile" ] && [ -n "$out_profile" ] || { err "У одной из нод не выбран профиль - свяжите её с профилем в панели."; return 1; }
+
+    local bport btag squad_name user_name
+    ask "Порт моста на выходной ноде" bport "9999"
+    ask "Тег инбаунда-моста" btag "BRIDGE_${out_name//[^A-Za-z0-9_]/_}"
+    ask "Имя squad для моста" squad_name "bridge-${out_name//[^A-Za-z0-9_ -]/-}"
+    ask "Имя сервисного юзера" user_name "bridge_$(echo "${in_name}_${out_name}" | tr -cd 'A-Za-z0-9_-' | cut -c1-28)"
+
+    log "[1/5] Инбаунд ${btag}:${bport} в профиль выходной ноды ${out_name}..."
+    local out_cfg new_out_cfg
+    out_cfg=$(panel_api GET "config-profiles/${out_profile}" | jq -e '.response.config') || return 1
+    new_out_cfg=$(jq --arg t "$btag" --argjson p "$bport" '
+        .inbounds = ((.inbounds // []) | map(select(.tag != $t)) + [{
+            tag: $t, port: $p, listen: "0.0.0.0", protocol: "shadowsocks",
+            settings: { clients: [], network: "tcp,udp" },
+            sniffing: { enabled: true, destOverride: ["http","tls","quic"] } }])' <<<"$out_cfg") || return 1
+    panel_api PATCH config-profiles "$(jq -n --arg u "$out_profile" --argjson c "$new_out_cfg" '{uuid:$u, config:$c}')" >/dev/null || return 1
+
+    log "[2/5] Включаю ${btag} на ноде ${out_name}..."
+    local bridge_inbound_uuid active
+    bridge_inbound_uuid=$(panel_api GET "config-profiles/${out_profile}/inbounds" \
+        | jq -er --arg t "$btag" '.response.inbounds[] | select(.tag == $t) | .uuid' | head -1) \
+        || { err "Панель не отдала uuid инбаунда ${btag}."; return 1; }
+    active=$(jq -c --arg b "$bridge_inbound_uuid" '[(.configProfile.activeInbounds[].uuid), $b] | unique' <<<"$out_node")
+    panel_api PATCH nodes "$(jq -n --arg u "$out_uuid" --arg p "$out_profile" --argjson ib "$active" \
+        '{uuid:$u, configProfile:{activeConfigProfileUuid:$p, activeInbounds:$ib}}')" >/dev/null || return 1
+
+    log "[3/5] Squad ${squad_name} только с мостом..."
+    local squads squad_uuid
+    squads=$(panel_api GET internal-squads) || return 1
+    squad_uuid=$(jq -r --arg n "$squad_name" '(.response.internalSquads // .response)[] | select(.name == $n) | .uuid' <<<"$squads" | head -1)
+    if [ -n "$squad_uuid" ]; then
+        warn "Squad ${squad_name} уже есть, использую его."
+    else
+        squad_uuid=$(panel_api POST internal-squads "$(jq -n --arg n "$squad_name" --arg b "$bridge_inbound_uuid" \
+            '{name:$n, inbounds:[$b]}')" | jq -r '.response.uuid') || return 1
+    fi
+
+    log "[4/5] Сервисный юзер ${user_name} (без лимита, до 2099)..."
+    local sspass created_user
+    sspass=$(head -c 18 /dev/urandom | base64 | tr -d '/+=' | cut -c1-24)
+    created_user=$(panel_api POST users "$(jq -n --arg u "$user_name" --arg s "$squad_uuid" --arg p "$sspass" \
+        '{username:$u, expireAt:"2099-01-01T00:00:00.000Z", trafficLimitBytes:0,
+          trafficLimitStrategy:"NO_RESET", status:"ACTIVE", ssPassword:$p, activeInternalSquads:[$s]}')") || {
+        err "Не удалось создать юзера. Если он уже есть - задайте другое имя или удалите старого в панели."; return 1; }
+    sspass=$(jq -r --arg p "$sspass" '.response.ssPassword // $p' <<<"$created_user")
+
+    log "[5/5] Outbound и правило в профиль входной ноды ${in_name}..."
+    local in_tags in_cfg new_in_cfg
+    in_tags=$(jq -c '[.configProfile.activeInbounds[].tag]' <<<"$in_node")
+    [ "$(jq 'length' <<<"$in_tags")" -gt 0 ] || { err "У входной ноды нет активных инбаундов."; return 1; }
+    in_cfg=$(panel_api GET "config-profiles/${in_profile}" | jq -e '.response.config') || return 1
+    # Правило идёт в КОНЕЦ: оно catch-all, и перед ним должны отработать уже существующие
+    # правила профиля (роскомнадзорные списки, psiphon-out и прочее).
+    new_in_cfg=$(jq --arg a "$out_addr" --argjson p "$bport" --arg pw "$sspass" --argjson t "$in_tags" '
+        .outbounds = ((.outbounds // []) | map(select(.tag != "SS_OUTBOUND_TO_EXIT")) + [{
+            tag: "SS_OUTBOUND_TO_EXIT", protocol: "shadowsocks",
+            settings: { servers: [{ address: $a, port: $p, password: $pw, level: 0,
+                                    method: "chacha20-ietf-poly1305" }] } }])
+        | .routing.rules = (((.routing.rules // []) | map(select(.outboundTag != "SS_OUTBOUND_TO_EXIT"))) + [{
+            type: "field", inboundTag: $t, outboundTag: "SS_OUTBOUND_TO_EXIT" }])' <<<"$in_cfg") || return 1
+    panel_api PATCH config-profiles "$(jq -n --arg u "$in_profile" --argjson c "$new_in_cfg" '{uuid:$u, config:$c}')" >/dev/null || return 1
+
+    log "Готово: ${in_name} -> ${out_name} (${out_addr}:${bport}), правило для инбаундов $(jq -r 'join(", ")' <<<"$in_tags")."
+    if [ "${DOMAIN:-}" = "$out_addr" ]; then
+        ufw allow "${bport}/tcp" && log "Порт ${bport}/tcp открыт на этой (выходной) ноде."
+    else
+        warn "На выходной ноде ${out_addr} откройте порт: ufw allow ${bport}/tcp"
+    fi
+    warn "Трафик, который не поймали прежние правила профиля ${in_name}, теперь уходит в мост."
+}
+
 ### ---------------------------------------------------------------------
 ### 8. Опциональные сторонние установщики (НЕ встраиваются целиком)
 ### ---------------------------------------------------------------------
@@ -794,6 +1002,7 @@ print_menu() {
     echo -e "  ${GREEN}3)${NC} roscom.dat + автообновление"
     echo -e "  ${GREEN}6)${NC} Psiphon-выход (установка / управление)"
     echo -e "  ${GREEN}7)${NC} Добавить ноду в панель (профиль из образца + нода)"
+    echo -e "  ${GREEN}8)${NC} Связать две ноды в панели (вход -> мост -> выход)"
     echo -e "  ${YELLOW}4)${NC} [опционально, сторонний репо] node-accelerator"
     echo -e "  ${YELLOW}5)${NC} [опционально, сторонний репо] remnawave-reverse-proxy-pro"
     echo -e "  ${RED}0)${NC} Выход"
@@ -811,6 +1020,7 @@ main() {
         roscom)         setup_roscom ;;
         psiphon)        psiphon_menu ;;
         panel)          register_node_in_panel ;;
+        link)           link_nodes_via_bridge ;;
         accelerator)    run_node_accelerator ;;
         reverse-proxy)  run_reverse_proxy_pro ;;
         "")
@@ -825,6 +1035,7 @@ main() {
                     5) run_reverse_proxy_pro ;;
                     6) psiphon_menu ;;
                     7) register_node_in_panel ;;
+                    8) link_nodes_via_bridge ;;
                     0) exit 0 ;;
                     *) warn "Неверный выбор" ;;
                 esac
@@ -833,7 +1044,7 @@ main() {
             ;;
         *)
             err "Неизвестный аргумент: $1"
-            echo "Использование: $0 [full|fail2ban|roscom|psiphon|panel|accelerator|reverse-proxy]"
+            echo "Использование: $0 [full|fail2ban|roscom|psiphon|panel|link|accelerator|reverse-proxy]"
             exit 1
             ;;
     esac
