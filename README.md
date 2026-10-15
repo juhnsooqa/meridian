@@ -7,6 +7,8 @@
 Firewall · ICMP · nginx + SSL · Docker · remnanode · fail2ban · roscom.dat
 Psiphon-выход · добавление ноды в панель по API · связка нод через shadowsocks-мост
 
+[![Stars](https://img.shields.io/github/stars/juhnsooqa/meridian?style=flat&logo=github&logoColor=white&label=звёзды&color=f0b429)](https://github.com/juhnsooqa/meridian/stargazers)
+[![Последний коммит](https://img.shields.io/github/last-commit/juhnsooqa/meridian?logo=git&logoColor=white&label=обновлён&color=39c5cf)](https://github.com/juhnsooqa/meridian/commits/main)
 ![bash](https://img.shields.io/badge/bash-4.4%2B-4EAA25?logo=gnubash&logoColor=white)
 ![Ubuntu | Debian](https://img.shields.io/badge/Ubuntu%2020.04%2B%20%7C%20Debian%2011%2B-E95420?logo=linux&logoColor=white)
 ![Remnawave](https://img.shields.io/badge/Remnawave-2.x-39c5cf)
@@ -22,13 +24,13 @@ Psiphon-выход · добавление ноды в панель по API · 
 ## 🚀 Запуск с сервера одной командой
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/juhnsooqa/meridian/main/remnawave-node-setup.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/juhnsooqa/meridian/main/meridian.sh)"
 ```
 
 Откроется интерактивное меню. Либо сразу конкретный шаг:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/juhnsooqa/meridian/main/remnawave-node-setup.sh)" -- full
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/juhnsooqa/meridian/main/meridian.sh)" -- full
 ```
 
 Доступные аргументы: `full`, `fail2ban`, `roscom`, `psiphon`, `panel`, `accelerator`, `reverse-proxy`.
@@ -121,6 +123,21 @@ allinone psiphon    # сразу меню Psiphon
 
 **Балансер** ([xray-json-advanced](https://docs.rw/learn/xray-json-advanced)) — это клиентский конфиг, а не нода: `panel-balancer-template.reference.json` вставляется в **Advanced → Xray JSON template** виртуального хоста. Балансируемые хосты надо скрыть (Hidden) и подставить их UUID в `injectHosts.selector.values`. Блок `remnawave` панель вырежет сама, подставив вместо него outbound'ы `proxy`, `proxy-2`, … — под них уже настроены `balancers.selector` и `burstObservatory.subjectSelector`. Нужна панель 2.6.3+.
 
+## 🎭 Заглушка
+
+Кто придёт на `https://домен` без нужного пути, увидит обычный сайт. Одна и та же страница на всех нодах — сама по себе примета, поэтому вариантов 20, лежат в [stubs/](stubs/):
+
+| | | | |
+|---|---|---|---|
+| `nginx` — дефолт nginx | `apache` — It works! | `blank` — пустая | `404` — Not Found |
+| `parked` — домен припаркован | `coming-soon` — тёмная | `maintenance` — техработы | `construction` — ретро |
+| `status` — всё работает | `api` — описание API | `docs` — документация | `personal` — страница разработчика |
+| `blog` — заметки | `portfolio` — тёмная сетка | `saas` — лендинг сервиса | `startup` — форма подписки |
+| `agency` — дизайн-студия | `shop` — магазин | `cafe` — кафе с меню | `all-good` — как было раньше |
+
+Выбор при установке, потом в любой момент — пункт меню **9** или `allinone stub`, можно сразу номером: `allinone stub 13`. Вариант `0` — случайный.
+Все страницы автономные: inline-CSS, ни одного внешнего запроса, ни одного чужого бренда — иначе заглушка сама себя выдаёт.
+
 ## 🛰 Psiphon
 
 Пункт меню 6 ставит Psiphon как SOCKS-выход для xray ([psiphon/psiphon_install.sh](psiphon/psiphon_install.sh), копия [Chara-Freedom/vps-psiphon](https://github.com/Chara-Freedom/vps-psiphon), MIT).
@@ -181,6 +198,13 @@ allinone psiphon    # сразу меню Psiphon
 
 <div align="center">
 
-**meridian** · MIT
+### Автор
+
+[![juhnsooqa](https://img.shields.io/badge/GitHub-juhnsooqa-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/juhnsooqa)
+[![juhn.pro](https://img.shields.io/badge/сайт-juhn.pro-39c5cf?style=for-the-badge&logo=firefoxbrowser&logoColor=white)](https://juhn.pro)
+
+Понравилось — поставьте ⭐
+
+**meridian** · MIT · © [juhnsooqa](https://github.com/juhnsooqa)
 
 </div>

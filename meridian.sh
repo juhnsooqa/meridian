@@ -11,15 +11,15 @@
 #
 # Run as root on a fresh Ubuntu/Debian VPS that will act as a Remnawave node.
 #
-#   sudo bash remnawave-node-setup.sh            # interactive menu
-#   sudo bash remnawave-node-setup.sh full       # firewall + icmp + nginx + ssl + docker + remnanode
-#   sudo bash remnawave-node-setup.sh fail2ban
-#   sudo bash remnawave-node-setup.sh roscom
-#   sudo bash remnawave-node-setup.sh psiphon         # Psiphon-выход для xray (psiphon/, из Chara-Freedom/vps-psiphon)
+#   sudo bash meridian.sh            # interactive menu
+#   sudo bash meridian.sh full       # firewall + icmp + nginx + ssl + docker + remnanode
+#   sudo bash meridian.sh fail2ban
+#   sudo bash meridian.sh roscom
+#   sudo bash meridian.sh psiphon         # Psiphon-выход для xray (psiphon/, из Chara-Freedom/vps-psiphon)
 #
 # После первого запуска на сервере есть команда `allinone` (всегда тянет свежую версию с GitHub).
-#   sudo bash remnawave-node-setup.sh accelerator     # optional, 3rd-party
-#   sudo bash remnawave-node-setup.sh reverse-proxy   # optional, 3rd-party
+#   sudo bash meridian.sh accelerator     # optional, 3rd-party
+#   sudo bash meridian.sh reverse-proxy   # optional, 3rd-party
 
 set -uo pipefail
 
@@ -200,20 +200,63 @@ install_nginx() {
     log "nginx установлен."
 }
 
-create_stub() {
-    log "Создание страницы-заглушки..."
+# Заглушка - это то, что увидит случайный прохожий на https://домен, поэтому вариантов много:
+# одинаковая страница на всех нодах сама по себе становится приметой. Лежат в stubs/ репозитория.
+STUBS=(
+    "nginx|Стандартная страница nginx"
+    "apache|It works! - дефолт Apache"
+    "blank|Пустая белая страница"
+    "404|404 Not Found"
+    "parked|Домен припаркован"
+    "coming-soon|Coming soon, тёмная"
+    "maintenance|Технические работы"
+    "construction|Under construction, ретро"
+    "status|Статус-страница, всё работает"
+    "api|Описание API, тёмная"
+    "docs|Документация с боковым меню"
+    "personal|Личная страница разработчика"
+    "blog|Блог с заметками"
+    "portfolio|Портфолио, тёмная сетка"
+    "saas|Лендинг SaaS-сервиса"
+    "startup|Стартап с формой подписки"
+    "agency|Дизайн-студия"
+    "shop|Небольшой магазин"
+    "cafe|Кафе с меню"
+    "all-good|All good! - как было раньше"
+)
+
+create_stub() { # create_stub [имя заглушки]
+    local choice="${1:-}" name i
+    if [ -z "$choice" ]; then
+        echo -e "${BOLD}Страница-заглушка (её увидит случайный посетитель домена):${NC}"
+        for i in "${!STUBS[@]}"; do
+            printf "  %2d) %-14s ${CYAN}%s${NC}\n" "$((i+1))" "${STUBS[$i]%%|*}" "${STUBS[$i]#*|}"
+        done
+        echo -e "   ${GREEN}0)${NC} случайная"
+        ask "Номер" choice "1"
+    fi
+
+    if [ "$choice" = "0" ]; then
+        choice=$(( (RANDOM % ${#STUBS[@]}) + 1 ))
+        log "Выпала заглушка «${STUBS[$((choice-1))]%%|*}»."
+    fi
+    is_menu_number "$choice" "${#STUBS[@]}" || return 1
+    name="${STUBS[$((choice-1))]%%|*}"
+
+    log "Создание страницы-заглушки (${name})..."
     mkdir -p /var/www/html/
-    cat > /var/www/html/index.html <<'EOF'
-<!DOCTYPE html>
-<html>
-    <head>
-        <title>All good!</title>
-    </head>
-    <body>
-        <h1>All good!</h1>
-    </body>
-</html>
-EOF
+    local tmp
+    tmp=$(mktemp) || return 1
+    if curl -fsSL -o "$tmp" "${REPO_RAW}/stubs/${name}.html" && [ -s "$tmp" ]; then
+        mv -f "$tmp" /var/www/html/index.html
+        chmod 644 /var/www/html/index.html
+    else
+        # Без сети лучше простая страница, чем пустой index.html и голый листинг каталога
+        rm -f "$tmp"
+        warn "Не удалось скачать stubs/${name}.html, ставлю простую страницу."
+        printf '<!DOCTYPE html>\n<html><head><meta charset="utf-8"><title>All good!</title></head>\n<body><h1>All good!</h1></body></html>\n' \
+            > /var/www/html/index.html
+    fi
 }
 
 issue_ssl() {
@@ -1181,7 +1224,7 @@ full_install() {
 install_cli() {
     cat > "$CLI_PATH" <<EOF
 #!/usr/bin/env bash
-s="\$(curl -fsSL ${REPO_RAW}/remnawave-node-setup.sh)" || { echo "allinone: не удалось скачать скрипт" >&2; exit 1; }
+s="\$(curl -fsSL ${REPO_RAW}/meridian.sh)" || { echo "allinone: не удалось скачать скрипт" >&2; exit 1; }
 exec bash -c "\$s" allinone "\$@"
 EOF
     chmod 755 "$CLI_PATH"
@@ -1206,6 +1249,7 @@ print_menu() {
     echo -e "    ${GREEN}2)${NC} fail2ban                ${CYAN}бан перебора SSH${NC}"
     echo -e "    ${GREEN}3)${NC} roscom.dat              ${CYAN}списки РКН + автообновление в 03:00${NC}"
     echo -e "    ${GREEN}6)${NC} Psiphon-выход           ${CYAN}SOCKS для гео-заблокированных сервисов${NC}"
+    echo -e "    ${GREEN}9)${NC} Сменить заглушку        ${CYAN}20 вариантов страницы для случайных гостей${NC}"
     echo
     echo -e "  ${BOLD}Панель${NC}"
     echo -e "    ${GREEN}7)${NC} Добавить ноду в панель  ${CYAN}профиль из образца + нода, по API${NC}"
@@ -1232,6 +1276,7 @@ main() {
         psiphon)        psiphon_menu ;;
         panel)          register_node_in_panel ;;
         link)           link_nodes_via_bridge ;;
+        stub)           create_stub "${2:-}" ;;
         accelerator)    run_node_accelerator ;;
         reverse-proxy)  run_reverse_proxy_pro ;;
         "")
@@ -1247,6 +1292,7 @@ main() {
                     6) psiphon_menu ;;
                     7) register_node_in_panel ;;
                     8) link_nodes_via_bridge ;;
+                    9) create_stub && systemctl reload nginx 2>/dev/null; log "Заглушка обновлена." ;;
                     0) exit 0 ;;
                     *) warn "Неверный выбор" ;;
                 esac
@@ -1255,7 +1301,7 @@ main() {
             ;;
         *)
             err "Неизвестный аргумент: $1"
-            echo "Использование: $0 [full|fail2ban|roscom|psiphon|panel|link|accelerator|reverse-proxy]"
+            echo "Использование: $0 [full|fail2ban|roscom|psiphon|panel|link|stub [N]|accelerator|reverse-proxy]"
             exit 1
             ;;
     esac
