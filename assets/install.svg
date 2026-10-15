@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="470" viewBox="0 0 800 470" xml:space="preserve" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="13.5">
+  <defs>
+    <style>
+      .bg  { fill: #0d1117; }
+      .bar { fill: #161b22; }
+      .t   { fill: #c9d1d9; }
+      .dim { fill: #8b949e; }
+      .gr  { fill: #3fb950; }
+      .ye  { fill: #d29922; }
+      .cy  { fill: #39c5cf; }
+      .b   { font-weight: 700; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="800" height="470" rx="10"/>
+  <path class="bar" d="M0 10a10 10 0 0 1 10-10h780a10 10 0 0 1 10 10v26H0z"/>
+  <circle cx="22" cy="18" r="6" fill="#f85149"/>
+  <circle cx="42" cy="18" r="6" fill="#d29922"/>
+  <circle cx="62" cy="18" r="6" fill="#3fb950"/>
+  <text class="dim" x="400" y="23" text-anchor="middle" font-size="12">root@node1: ~ — allinone full</text>
+
+  <text x="24" y="66"><tspan class="dim"># </tspan><tspan class="t b">allinone full</tspan></text>
+
+  <text x="24" y="94"><tspan class="t">Сменить пароль root перед установкой? [Y/n]: </tspan><tspan class="t b">y</tspan></text>
+  <text x="24" y="116"><tspan class="t">Добавить ноду в панель автоматически по API? [Y/n]: </tspan><tspan class="t b">y</tspan></text>
+  <text x="24" y="138"><tspan class="t">URL панели: </tspan><tspan class="t b">https://panel.example.com</tspan></text>
+  <text x="24" y="160"><tspan class="t">API-токен панели: </tspan><tspan class="dim">••••••••••••••••</tspan></text>
+  <text x="24" y="182"><tspan class="t">Домен ноды: </tspan><tspan class="t b">node1.example.com</tspan></text>
+
+  <text x="24" y="214"><tspan class="gr b">[+]</tspan><tspan class="t"> SECRET_KEY получен из панели по API.</tspan></text>
+  <text x="24" y="236"><tspan class="gr b">[+]</tspan><tspan class="t"> UFW настроен и включён.</tspan></text>
+  <text x="24" y="258"><tspan class="gr b">[+]</tspan><tspan class="t"> ICMP заблокирован </tspan><tspan class="dim">(бэкап правил: before.rules.bak.*)</tspan></text>
+  <text x="24" y="280"><tspan class="gr b">[+]</tspan><tspan class="t"> nginx установлен.</tspan></text>
+  <text x="24" y="302"><tspan class="gr b">[+]</tspan><tspan class="t"> Создание страницы-заглушки (</tspan><tspan class="cy">status</tspan><tspan class="t">)...</tspan></text>
+  <text x="24" y="324"><tspan class="gr b">[+]</tspan><tspan class="t"> Сертификат выпущен.</tspan></text>
+  <text x="24" y="346"><tspan class="gr b">[+]</tspan><tspan class="t"> nginx настроен и перезапущен.</tspan></text>
+  <text x="24" y="368"><tspan class="gr b">[+]</tspan><tspan class="t"> remnanode запущен.</tspan></text>
+  <text x="24" y="390"><tspan class="gr b">[+]</tspan><tspan class="t"> Нода node1 (node1.example.com:2222) добавлена в панель.</tspan></text>
+  <text x="24" y="412"><tspan class="gr b">[+]</tspan><tspan class="t b"> Базовая установка ноды завершена.</tspan></text>
+
+  <text x="24" y="444"><tspan class="ye b">[!]</tspan><tspan class="t"> Настройки хостов — /opt/remnanode/panel-hosts.txt</tspan></text>
+</svg>

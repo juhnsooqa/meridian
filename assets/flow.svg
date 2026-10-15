@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="426" viewBox="0 0 860 470" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <defs>
+    <style>
+      .card  { fill: #161b22; stroke: #30363d; }
+      .node  { fill: #0d1117; stroke: #39c5cf; stroke-width: 1.5; }
+      .ttl   { fill: #e6edf3; font-size: 14px; font-weight: 700; }
+      .sub   { fill: #8b949e; font-size: 11.5px; }
+      .tag   { fill: #c9d1d9; font-size: 12.5px; font-weight: 600; }
+      .line  { stroke: #30363d; stroke-width: 1.6; fill: none; }
+      .flow  { stroke: #39c5cf; stroke-width: 1.8; fill: none; }
+      .gr    { stroke: #3fb950; }
+      .pu    { stroke: #a371f7; }
+      .or    { stroke: #db6d28; }
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#39c5cf"/>
+    </marker>
+    <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#3fb950"/>
+    </marker>
+    <marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#a371f7"/>
+    </marker>
+    <marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#db6d28"/>
+    </marker>
+  </defs>
+
+  <rect width="860" height="470" rx="12" fill="#0d1117"/>
+
+  <!-- клиент -->
+  <rect class="node" x="28" y="186" width="130" height="62" rx="10"/>
+  <text class="ttl" x="93" y="212" text-anchor="middle">клиент</text>
+  <text class="sub" x="93" y="231" text-anchor="middle">VLESS + xhttp</text>
+
+  <path class="flow" d="M160 217 H214" marker-end="url(#a)"/>
+  <text class="sub" x="187" y="207" text-anchor="middle" fill="#39c5cf">:443 TLS</text>
+
+  <!-- нода -->
+  <rect class="card" x="218" y="60" width="330" height="350" rx="12" stroke-dasharray="5 4"/>
+  <text class="sub" x="236" y="84" font-size="12" fill="#6e7681">нода</text>
+
+  <rect class="node" x="246" y="110" width="274" height="86" rx="10"/>
+  <text class="ttl" x="266" y="136">nginx</text>
+  <text class="sub" x="266" y="156">/xhttppath/ → unix-сокет в /dev/shm</text>
+  <text class="sub" x="266" y="175">всё прочее → страница-заглушка</text>
+
+  <path class="flow" d="M383 200 V236" marker-end="url(#a)"/>
+
+  <rect class="node" x="246" y="240" width="274" height="68" rx="10"/>
+  <text class="ttl" x="266" y="266">xray</text>
+  <text class="sub" x="266" y="286">маршруты: roscom.dat, geosite, geoip</text>
+
+  <path class="line" d="M383 312 V340" />
+  <path class="line" d="M300 340 H470" />
+
+  <!-- три выхода -->
+  <path class="flow gr" d="M300 340 V372" marker-end="url(#ag)"/>
+  <path class="flow pu" d="M383 340 V372" marker-end="url(#ap)"/>
+  <path class="flow or" d="M470 340 V372" marker-end="url(#ao)"/>
+
+  <text class="tag" x="300" y="390" text-anchor="middle" fill="#3fb950">DIRECT</text>
+  <text class="sub" x="300" y="406" text-anchor="middle">рунет</text>
+
+  <text class="tag" x="383" y="390" text-anchor="middle" fill="#a371f7">psiphon</text>
+  <text class="sub" x="383" y="406" text-anchor="middle">:1080</text>
+
+  <text class="tag" x="470" y="390" text-anchor="middle" fill="#db6d28">мост</text>
+  <text class="sub" x="470" y="406" text-anchor="middle">:9999</text>
+
+  <!-- правая колонка: куда уходит -->
+  <rect class="node" x="606" y="96" width="226" height="74" rx="10" stroke="#3fb950"/>
+  <text class="ttl" x="626" y="122">Напрямую</text>
+  <text class="sub" x="626" y="142">ext:roscom.dat, geoip:ru,</text>
+  <text class="sub" x="626" y="158">YouTube, Telegram, банки</text>
+
+  <rect class="node" x="606" y="194" width="226" height="74" rx="10" stroke="#a371f7"/>
+  <text class="ttl" x="626" y="220">Через Psiphon</text>
+  <text class="sub" x="626" y="240">Gemini, Claude, ChatGPT —</text>
+  <text class="sub" x="626" y="256">то, что блокирует IP ноды</text>
+
+  <rect class="node" x="606" y="292" width="226" height="74" rx="10" stroke="#db6d28"/>
+  <text class="ttl" x="626" y="318">Через вторую ноду</text>
+  <text class="sub" x="626" y="338">shadowsocks-мост на выход</text>
+  <text class="sub" x="626" y="354">в другой стране</text>
+
+  <path class="flow gr" d="M330 400 C 430 452, 560 452, 598 180 " marker-end="url(#ag)" opacity="0.85"/>
+  <path class="flow pu" d="M405 400 C 500 446, 566 400, 598 268" marker-end="url(#ap)" opacity="0.85"/>
+  <path class="flow or" d="M492 400 C 540 420, 566 400, 598 352" marker-end="url(#ao)" opacity="0.85"/>
+</svg>

@@ -953,7 +953,7 @@ register_node_in_panel() {
     ask "Имя профиля и ноды в панели" name "$prefix"
     [ "${#name}" -ge 3 ] || { err "Имя профиля/ноды в панели - минимум 3 символа."; return 1; }
 
-    # Теги: pl2 -> finl1, ITALY_MILAN_TCP -> finl1_TCP (меняется всё до последнего "_").
+    # Теги: vless-xhttp -> node1, EU_NODE_TCP -> node1_TCP (меняется всё до последнего "_").
     # SNI Reality (если в образце он есть) обязан указывать на домен ЭТОЙ ноды,
     # иначе клиент получит сертификат чужого домена и хендшейк развалится.
     # Сначала строим карту старый тег -> новый, потом применяем её и к инбаундам, и к ссылкам
@@ -1130,7 +1130,7 @@ link_nodes_via_bridge() {
     [ "$(jq 'length' <<<"$in_tags")" -gt 0 ] || { err "У входной ноды нет активных инбаундов."; return 1; }
     in_cfg=$(panel_api GET "config-profiles/${in_profile}" | jq -e '.response.config') || return 1
     # Правило идёт в КОНЕЦ: оно catch-all, и перед ним должны отработать уже существующие
-    # правила профиля (роскомнадзорные списки, psiphon-out и прочее).
+    # правила профиля (списки roscom.dat, psiphon-out и прочее).
     new_in_cfg=$(jq --arg a "$out_addr" --argjson p "$bport" --arg pw "$sspass" --argjson t "$in_tags" '
         .outbounds = ((.outbounds // []) | map(select(.tag != "SS_OUTBOUND_TO_EXIT")) + [{
             tag: "SS_OUTBOUND_TO_EXIT", protocol: "shadowsocks",
@@ -1247,17 +1247,17 @@ print_menu() {
     echo -e "  ${BOLD}Установка${NC}"
     echo -e "    ${GREEN}1)${NC} Полная установка ноды   ${CYAN}firewall, ICMP, nginx, SSL, docker, remnanode${NC}"
     echo -e "    ${GREEN}2)${NC} fail2ban                ${CYAN}бан перебора SSH${NC}"
-    echo -e "    ${GREEN}3)${NC} roscom.dat              ${CYAN}списки РКН + автообновление в 03:00${NC}"
-    echo -e "    ${GREEN}6)${NC} Psiphon-выход           ${CYAN}SOCKS для гео-заблокированных сервисов${NC}"
-    echo -e "    ${GREEN}9)${NC} Сменить заглушку        ${CYAN}20 вариантов страницы для случайных гостей${NC}"
+    echo -e "    ${GREEN}3)${NC} roscom.dat              ${CYAN}geosite от roscomvpn + автообновление${NC}"
+    echo -e "    ${GREEN}4)${NC} Psiphon-выход           ${CYAN}SOCKS для гео-заблокированных сервисов${NC}"
+    echo -e "    ${GREEN}5)${NC} Сменить заглушку        ${CYAN}20 вариантов страницы для случайных гостей${NC}"
     echo
     echo -e "  ${BOLD}Панель${NC}"
-    echo -e "    ${GREEN}7)${NC} Добавить ноду в панель  ${CYAN}профиль из образца + нода, по API${NC}"
-    echo -e "    ${GREEN}8)${NC} Связать две ноды        ${CYAN}вход → shadowsocks-мост → выход${NC}"
+    echo -e "    ${GREEN}6)${NC} Добавить ноду в панель  ${CYAN}профиль из образца + нода, по API${NC}"
+    echo -e "    ${GREEN}7)${NC} Связать две ноды        ${CYAN}вход → shadowsocks-мост → выход${NC}"
     echo
     echo -e "  ${BOLD}Стороннее${NC} ${YELLOW}(чужие установщики, запускаются как есть)${NC}"
-    echo -e "    ${YELLOW}4)${NC} node-accelerator        ${CYAN}оптимизация сети${NC}"
-    echo -e "    ${YELLOW}5)${NC} reverse-proxy-pro       ${CYAN}панель + reverse-proxy${NC}"
+    echo -e "    ${YELLOW}8)${NC} node-accelerator        ${CYAN}оптимизация сети${NC}"
+    echo -e "    ${YELLOW}9)${NC} reverse-proxy-pro       ${CYAN}панель + reverse-proxy${NC}"
     echo
     echo -e "    ${RED}0)${NC} Выход"
     echo
@@ -1287,12 +1287,12 @@ main() {
                     1) full_install ;;
                     2) install_fail2ban ;;
                     3) setup_roscom ;;
-                    4) run_node_accelerator ;;
-                    5) run_reverse_proxy_pro ;;
-                    6) psiphon_menu ;;
-                    7) register_node_in_panel ;;
-                    8) link_nodes_via_bridge ;;
-                    9) create_stub && systemctl reload nginx 2>/dev/null; log "Заглушка обновлена." ;;
+                    4) psiphon_menu ;;
+                    5) create_stub && { systemctl reload nginx 2>/dev/null; log "Заглушка обновлена."; } ;;
+                    6) register_node_in_panel ;;
+                    7) link_nodes_via_bridge ;;
+                    8) run_node_accelerator ;;
+                    9) run_reverse_proxy_pro ;;
                     0) exit 0 ;;
                     *) warn "Неверный выбор" ;;
                 esac
