@@ -107,3 +107,63 @@ allinone psiphon    # сразу меню Psiphon
 Пункт меню 6 ставит Psiphon как SOCKS-выход для xray ([psiphon/psiphon_install.sh](psiphon/psiphon_install.sh), копия [Chara-Freedom/vps-psiphon](https://github.com/Chara-Freedom/vps-psiphon), MIT).
 Ставить только на зарубежную ноду. После установки в `/opt/remnanode/panel-profile.reference.json` добавляется аутбаунд `psiphon-out` и правило для `geosite:openai`/`geosite:google-gemini` (только TCP).
 Управление — через меню или напрямую `vps-psiphon {status|rotate|region CC|speed|logs|uninstall}`.
+
+## Как ходит трафик
+
+```
+    клиент
+       │  VLESS + xhttp, TLS на :443
+       ▼
+ ┌─────────────────────────────────────────────┐
+ │  нода                                       │
+ │                                             │
+ │   nginx :443 ──── /xhttppath/ ───┐          │
+ │     │                            │          │
+ │     └── всё прочее → заглушка    │ unix-сокет
+ │         «All good!»              │ /dev/shm/xrxh.socket
+ │                                  ▼          │
+ │                                xray         │
+ │                                  │          │
+ │        ┌─────────────────────────┼──────────┴───────┐
+ │        ▼                         ▼                  ▼
+ │     DIRECT                 psiphon-out      SS_OUTBOUND_TO_EXIT
+ │   ext:roscom.dat          SOCKS :1080        мост на другую ноду
+ │   geoip:ru, рунет        Gemini, Claude,         :9999
+ │                             ChatGPT                │
+ └────────────────────────────────────────────────────┼───┘
+                                                      ▼
+                                                выходная нода
+```
+
+Снаружи нода выглядит обычным сайтом: кто придёт на `https://домен` без нужного пути, увидит страницу-заглушку.
+
+## Что где лежит на сервере
+
+| Путь | Что это |
+|---|---|
+| `/opt/remnanode/` | нода: `docker-compose.yml`, `.env` (chmod 600), geo-файлы, справочные JSON для панели |
+| `/root/.remnanode-setup.env` | домен, email, `SECRET_KEY`, порт ноды (chmod 600) |
+| `/root/.remnawave-panel.env` | URL панели и API-токен (chmod 600) |
+| `/etc/nginx/conf.d/xray.conf` | 443 и 9443 с SSL, `/xhttppath/` в сокет xray |
+| `/etc/letsencrypt/live/<домен>/` | сертификаты, обновляет `certbot.timer` |
+| `/etc/default/vps-psiphon` | параметры Psiphon, оттуда берётся адрес `psiphon-out` |
+| `/usr/local/bin/allinone` | команда-обёртка, тянет свежий скрипт с GitHub |
+| `/var/log/roscom_update.log` | лог ночного обновления roscom.dat |
+
+## Благодарности
+
+| Проект | Что взято |
+|---|---|
+| [herbalsomml/remnawave-guide](https://github.com/herbalsomml/remnawave-guide) | порядок установки ноды, конфиг nginx, профиль и настройки хостов |
+| [Chara-Freedom/vps-psiphon](https://github.com/Chara-Freedom/vps-psiphon) | установщик Psiphon целиком (MIT, лежит в `psiphon/`) |
+| [hydraponique/roscomvpn-geosite](https://github.com/hydraponique/roscomvpn-geosite) | `roscom.dat` |
+| [Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat) | `geoip.dat`, `geosite.dat` |
+| [docs.rw](https://docs.rw) | API панели, server-routing, балансер |
+
+<div align="center">
+
+**meridian** · MIT
+
+Скрипты собраны с ИИ, бегают на реальных нодах, но гарантий не дают.
+
+</div>
