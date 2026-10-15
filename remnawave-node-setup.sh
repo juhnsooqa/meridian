@@ -32,6 +32,7 @@ err()  { echo -e "${RED}[x]${NC} $*" >&2; }
 STATE_FILE="/root/.remnanode-setup.env"
 NODE_DIR="/opt/remnanode"
 REPO_RAW="https://raw.githubusercontent.com/juhnsooqa/allinone/main"
+PANEL_STATE="/root/.remnawave-panel.env"
 CLI_PATH="/usr/local/bin/allinone"
 
 require_root() {
@@ -41,10 +42,11 @@ require_root() {
     fi
 }
 
-ask() { # ask "prompt" varname [default]
+ask() { # ask "prompt" varname [default] - третий аргумент, даже пустой, делает ответ необязательным
     local prompt="$1" __var="$2" default="${3:-}" reply
-    if [ -n "$default" ]; then
-        read -rp "$prompt [$default]: " reply
+    if [ $# -ge 3 ]; then
+        [ -n "$default" ] && prompt="$prompt [$default]"
+        read -rp "$prompt: " reply
         reply="${reply:-$default}"
     else
         read -rp "$prompt: " reply
@@ -62,6 +64,9 @@ load_common_vars() {
     fi
     if [ -z "${EMAIL:-}" ]; then
         ask "Email для Let's Encrypt (пусто = без email)" EMAIL ""
+    fi
+    if [ -z "${SECRET_KEY:-}" ]; then
+        SECRET_KEY="$(panel_secret_key)" && [ -n "$SECRET_KEY" ] && log "SECRET_KEY получен из панели по API."
     fi
     if [ -z "${SECRET_KEY:-}" ]; then
         ask "SECRET_KEY ноды из панели Remnawave" SECRET_KEY
@@ -594,7 +599,130 @@ psiphon_menu() {
 }
 
 ### ---------------------------------------------------------------------
-### 7. Опциональные сторонние установщики (НЕ встраиваются целиком)
+### 7. Панель Remnawave по API: профиль из образца + сама нода
+### ---------------------------------------------------------------------
+need_jq() { command -v jq &>/dev/null || { apt update -y; apt install -y jq; }; }
+
+load_panel_vars() {
+    [ -f "$PANEL_STATE" ] && source "$PANEL_STATE"
+    [ -n "${PANEL_URL:-}" ]   || ask "URL панели (https://panel.example.com)" PANEL_URL
+    [ -n "${PANEL_TOKEN:-}" ] || ask "API-токен панели (в панели: Настройки -> API токены)" PANEL_TOKEN
+    PANEL_URL="${PANEL_URL%/}"
+    cat > "$PANEL_STATE" <<EOF
+PANEL_URL="$PANEL_URL"
+PANEL_TOKEN="$PANEL_TOKEN"
+EOF
+    chmod 600 "$PANEL_STATE"
+}
+
+# panel_api МЕТОД ПУТЬ [ТЕЛО] -> ответ в stdout; не 2xx = ненулевой код возврата
+panel_api() {
+    local method="$1" path="$2" body="${3:-}" out code
+    local args=(-sS -m 30 -X "$method" -H "Authorization: Bearer ${PANEL_TOKEN}" -H "Content-Type: application/json")
+    [ -n "$body" ] && args+=(--data-binary "$body")
+    out=$(curl "${args[@]}" -w $'\n%{http_code}' "${PANEL_URL}/api/${path}") || { err "Панель недоступна: ${PANEL_URL}"; return 1; }
+    code="${out##*$'\n'}"
+    printf '%s' "${out%$'\n'*}"
+    case "$code" in
+        2*) return 0 ;;
+        401|403) err "Панель отклонила токен (HTTP ${code})."; return 1 ;;
+        *) err "API ${method} /${path} -> HTTP ${code}"; return 1 ;;
+    esac
+}
+
+# SECRET_KEY ноды панель отдаёт сама - спрашивать его не нужно
+panel_secret_key() {
+    [ -f "$PANEL_STATE" ] || return 1
+    command -v jq &>/dev/null || return 1
+    source "$PANEL_STATE"
+    [ -n "${PANEL_URL:-}" ] && [ -n "${PANEL_TOKEN:-}" ] || return 1
+    panel_api GET keygen 2>/dev/null | jq -er '.response.secretKey // empty' 2>/dev/null
+}
+
+register_node_in_panel() {
+    need_jq
+    load_panel_vars
+    load_common_vars
+
+    local profiles uuids names i n
+    profiles=$(panel_api GET config-profiles) || return 1
+    mapfile -t uuids < <(jq -r '.response.configProfiles[].uuid' <<<"$profiles")
+    mapfile -t names < <(jq -r '.response.configProfiles[].name'  <<<"$profiles")
+
+    echo -e "${BOLD}Профиль-образец (копируется целиком, меняются только теги и SNI):${NC}"
+    for i in "${!uuids[@]}"; do printf "  %d) %s\n" "$((i+1))" "${names[$i]}"; done
+    echo "  0) локальный ${NODE_DIR}/panel-profile.reference.json"
+    ask "Номер" n "1"
+
+    local tmpl
+    if [ "$n" = "0" ]; then
+        [ -f "${NODE_DIR}/panel-profile.reference.json" ] || { err "Нет ${NODE_DIR}/panel-profile.reference.json"; return 1; }
+        tmpl=$(cat "${NODE_DIR}/panel-profile.reference.json")
+        warn "Reality-ключи в этом образце - заглушки, впишите их в панели после создания."
+    else
+        local src="${uuids[$((n-1))]:-}"
+        [ -n "$src" ] || { err "Нет такого номера."; return 1; }
+        tmpl=$(panel_api GET "config-profiles/${src}" | jq -e '.response.config') || { err "Не удалось получить конфиг образца."; return 1; }
+    fi
+
+    local prefix name
+    ask "Тег инбаунда в конфиге" prefix "$(echo "${DOMAIN%%.*}" | tr -cd 'A-Za-z0-9_-')"
+    [ -n "$prefix" ] || { err "Тег не может быть пустым."; return 1; }
+    ask "Имя профиля и ноды в панели" name "$prefix"
+    [ "${#name}" -ge 3 ] || { err "Имя профиля/ноды в панели - минимум 3 символа."; return 1; }
+
+    # Теги: pl2 -> finl1, ITALY_MILAN_TCP -> finl1_TCP (меняется всё до последнего "_").
+    # SNI Reality (если в образце он есть) обязан указывать на домен ЭТОЙ ноды,
+    # иначе клиент получит сертификат чужого домена и хендшейк развалится.
+    local newcfg
+    newcfg=$(jq --arg p "$prefix" --arg d "$DOMAIN" '
+        .inbounds = [ .inbounds[] | .tag = (if (.tag | test("_")) then $p + "_" + (.tag | split("_") | last) else $p end) ]
+        | walk(if type == "object" and has("serverNames") then .serverNames = [$d] else . end)
+    ' <<<"$tmpl") || { err "Не удалось преобразовать конфиг образца."; return 1; }
+
+    # Образец может опираться на то, чего на этой ноде ещё нет: мёртвый psiphon-out или
+    # отсутствующий roscom.dat - и xray либо не стартует, либо роняет часть маршрутов в никуда.
+    if grep -q 'psiphon-out' <<<"$newcfg"; then
+        if [ ! -r /etc/default/vps-psiphon ]; then
+            warn "В образце есть outbound psiphon-out, но Psiphon на этой ноде не стоит."
+            read -rp "Поставить Psiphon сейчас? [Y/n]: " a
+            [[ "$a" =~ ^[Nn]$ ]] || setup_psiphon
+        fi
+        if [ -r /etc/default/vps-psiphon ]; then
+            local pb pp
+            read -r pb pp < <(. /etc/default/vps-psiphon; echo "${BIND:-172.17.0.1} ${SOCKS_PORT:-1080}")
+            newcfg=$(jq --arg pb "$pb" --argjson pp "$pp" \
+                '(.outbounds[]? | select(.tag == "psiphon-out") | .settings) |= (.address = $pb | .port = $pp)' <<<"$newcfg")
+            log "psiphon-out направлен на ${pb}:${pp}."
+        else
+            warn "psiphon-out останется нерабочим - маршруты через него не пойдут."
+        fi
+    fi
+    if grep -q 'roscom.dat' <<<"$newcfg" && [ ! -f "${NODE_DIR}/roscom.dat" ]; then
+        warn "Образец использует ext:roscom.dat - без этого файла xray на ноде не стартует."
+        read -rp "Настроить roscom.dat сейчас? [Y/n]: " a
+        [[ "$a" =~ ^[Nn]$ ]] || setup_roscom
+    fi
+
+    log "Создаю профиль ${name}, теги: $(jq -r '[.inbounds[].tag] | join(", ")' <<<"$newcfg")"
+    local created puuid inbounds
+    created=$(panel_api POST config-profiles "$(jq -n --arg n "$name" --argjson c "$newcfg" '{name:$n, config:$c}')") || return 1
+    puuid=$(jq -r '.response.uuid' <<<"$created")
+    inbounds=$(jq -c '[.response.inbounds[].uuid]' <<<"$created")
+
+    local cc
+    ask "Код страны ноды (2 буквы)" cc "XX"
+    panel_api POST nodes "$(jq -n --arg n "$name" --arg a "$DOMAIN" --argjson p "$NODE_PORT" \
+        --arg cc "$cc" --arg pu "$puuid" --argjson ib "$inbounds" \
+        '{name:$n, address:$a, port:$p, countryCode:($cc|ascii_upcase),
+          configProfile:{activeConfigProfileUuid:$pu, activeInbounds:$ib}}')" >/dev/null || return 1
+
+    log "Нода ${name} (${DOMAIN}:${NODE_PORT}) добавлена в панель, все инбаунды включены."
+    warn "Хосты скрипт не создаёт - настройки для них в ${NODE_DIR}/panel-hosts.txt."
+}
+
+### ---------------------------------------------------------------------
+### 8. Опциональные сторонние установщики (НЕ встраиваются целиком)
 ### ---------------------------------------------------------------------
 run_node_accelerator() {
     warn "Это сторонний репозиторий jestivald/node-accelerator (оптимизация сети/защита, не про Remnawave)."
@@ -620,6 +748,14 @@ run_reverse_proxy_pro() {
 ### Основная установка ноды одним вызовом
 ### ---------------------------------------------------------------------
 full_install() {
+    # Панель спрашиваем первой: по её API берётся SECRET_KEY, а в конце туда же добавляется нода.
+    if [ ! -f "$PANEL_STATE" ]; then
+        read -rp "Добавить ноду в панель автоматически по API (нужен токен)? [Y/n]: " a
+        if [[ ! "$a" =~ ^[Nn]$ ]]; then
+            need_jq
+            load_panel_vars
+        fi
+    fi
     load_common_vars
     setup_firewall
     block_icmp
@@ -629,6 +765,7 @@ full_install() {
     configure_nginx
     install_docker
     setup_remnanode
+    [ -f "$PANEL_STATE" ] && register_node_in_panel
     log "Базовая установка ноды завершена."
     read -rp "Установить fail2ban сейчас? [Y/n]: " a
     [[ "$a" =~ ^[Nn]$ ]] || install_fail2ban
@@ -656,6 +793,7 @@ print_menu() {
     echo -e "  ${GREEN}2)${NC} fail2ban"
     echo -e "  ${GREEN}3)${NC} roscom.dat + автообновление"
     echo -e "  ${GREEN}6)${NC} Psiphon-выход (установка / управление)"
+    echo -e "  ${GREEN}7)${NC} Добавить ноду в панель (профиль из образца + нода)"
     echo -e "  ${YELLOW}4)${NC} [опционально, сторонний репо] node-accelerator"
     echo -e "  ${YELLOW}5)${NC} [опционально, сторонний репо] remnawave-reverse-proxy-pro"
     echo -e "  ${RED}0)${NC} Выход"
@@ -672,6 +810,7 @@ main() {
         fail2ban)       install_fail2ban ;;
         roscom)         setup_roscom ;;
         psiphon)        psiphon_menu ;;
+        panel)          register_node_in_panel ;;
         accelerator)    run_node_accelerator ;;
         reverse-proxy)  run_reverse_proxy_pro ;;
         "")
@@ -685,6 +824,7 @@ main() {
                     4) run_node_accelerator ;;
                     5) run_reverse_proxy_pro ;;
                     6) psiphon_menu ;;
+                    7) register_node_in_panel ;;
                     0) exit 0 ;;
                     *) warn "Неверный выбор" ;;
                 esac
@@ -693,7 +833,7 @@ main() {
             ;;
         *)
             err "Неизвестный аргумент: $1"
-            echo "Использование: $0 [full|fail2ban|roscom|psiphon|accelerator|reverse-proxy]"
+            echo "Использование: $0 [full|fail2ban|roscom|psiphon|panel|accelerator|reverse-proxy]"
             exit 1
             ;;
     esac
