@@ -31,7 +31,7 @@ err()  { echo -e "${RED}[x]${NC} $*" >&2; }
 
 STATE_FILE="/root/.remnanode-setup.env"
 NODE_DIR="/opt/remnanode"
-REPO_RAW="https://raw.githubusercontent.com/juhnsooqa/allinone/main"
+REPO_RAW="https://raw.githubusercontent.com/juhnsooqa/meridian/main"
 PANEL_STATE="/root/.remnawave-panel.env"
 CLI_PATH="/usr/local/bin/allinone"
 
@@ -1190,7 +1190,7 @@ EOF
 print_menu() {
     clear
     echo -e "${CYAN}${BOLD}  ╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}${BOLD}  ║            Remnawave Node Setup  ·  allinone             ║${NC}"
+    echo -e "${CYAN}${BOLD}  ║            Remnawave Node Setup  ·  meridian             ║${NC}"
     echo -e "${CYAN}${BOLD}  ╚══════════════════════════════════════════════════════════╝${NC}"
 
     # Короткая сводка: что уже есть на этой машине
@@ -1224,7 +1224,7 @@ main() {
     require_root
     install_cli
     # На свежем VPS apt часто занят unattended-upgrades: пусть все apt (и сторонние установщики) ждут lock до 10 минут, а не падают
-    echo 'DPkg::Lock::Timeout "600";' > /etc/apt/apt.conf.d/99allinone-lock-wait
+    echo 'DPkg::Lock::Timeout "600";' > /etc/apt/apt.conf.d/99meridian-lock-wait
     case "${1:-}" in
         full)           full_install ;;
         fail2ban)       install_fail2ban ;;

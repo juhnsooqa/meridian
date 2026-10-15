@@ -1,18 +1,19 @@
-# allinone
+# meridian
 
-Скрипт для настройки Remnawave-ноды: firewall, ICMP, nginx, SSL, Docker, remnanode, fail2ban, roscom.dat.
+Скрипт для настройки Remnawave-ноды: firewall, ICMP, nginx, SSL, Docker, remnanode, fail2ban, roscom.dat,
+Psiphon-выход, добавление ноды в панель по API и связка нод через shadowsocks-мост.
 Собран из [remnawave-guide](https://github.com/herbalsomml/remnawave-guide) и части скриптов этого репозитория.
 
 ## Запуск с сервера одной командой
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/juhnsooqa/allinone/main/remnawave-node-setup.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/juhnsooqa/meridian/main/remnawave-node-setup.sh)"
 ```
 
 Откроется интерактивное меню. Либо сразу конкретный шаг:
 
 ```bash
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/juhnsooqa/allinone/main/remnawave-node-setup.sh)" -- full
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/juhnsooqa/meridian/main/remnawave-node-setup.sh)" -- full
 ```
 
 Доступные аргументы: `full`, `fail2ban`, `roscom`, `psiphon`, `panel`, `accelerator`, `reverse-proxy`.
