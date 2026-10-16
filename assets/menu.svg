@@ -1,49 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="604" viewBox="0 0 800 604" xml:space="preserve" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="14">
-  <defs>
-    <style>
-      .bg  { fill: #0d1117; }
-      .bar { fill: #161b22; }
-      .t   { fill: #c9d1d9; }
-      .dim { fill: #8b949e; }
-      .cy  { fill: #39c5cf; }
-      .gr  { fill: #3fb950; }
-      .ye  { fill: #d29922; }
-      .rd  { fill: #f85149; }
-      .b   { font-weight: 700; }
-    </style>
-  </defs>
-
-  <rect class="bg" width="800" height="604" rx="10"/>
-  <path class="bar" d="M0 10a10 10 0 0 1 10-10h780a10 10 0 0 1 10 10v26H0z"/>
-  <circle cx="22" cy="18" r="6" fill="#f85149"/>
-  <circle cx="42" cy="18" r="6" fill="#d29922"/>
-  <circle cx="62" cy="18" r="6" fill="#3fb950"/>
-  <text class="dim" x="400" y="23" text-anchor="middle" font-size="12">root@node1: ~ — allinone</text>
-
-  <rect x="24" y="58" width="752" height="48" rx="6" fill="none" stroke="#39c5cf" stroke-width="1.5"/>
-  <text class="cy b" x="400" y="88" text-anchor="middle" font-size="16" letter-spacing="1">Remnawave Node Setup · meridian</text>
-
-  <text x="28" y="140">
-    <tspan class="t b">домен:</tspan><tspan class="t" dx="6">node1.example.com</tspan><tspan class="t b" dx="26">нода:</tspan><tspan class="gr" dx="6">есть</tspan><tspan class="t b" dx="26">psiphon:</tspan><tspan class="gr" dx="6">есть</tspan>
-  </text>
-  <line x1="24" y1="158" x2="776" y2="158" stroke="#21262d" stroke-width="1"/>
-
-  <text class="t b" x="28" y="190">Установка</text>
-  <text x="44" y="214"><tspan class="gr b">1)</tspan><tspan class="t" dx="8">Полная установка ноды</tspan><tspan class="cy" x="300">firewall, ICMP, nginx, SSL, docker, remnanode</tspan></text>
-  <text x="44" y="238"><tspan class="gr b">2)</tspan><tspan class="t" dx="8">fail2ban</tspan><tspan class="cy" x="300">бан перебора SSH</tspan></text>
-  <text x="44" y="262"><tspan class="gr b">3)</tspan><tspan class="t" dx="8">roscom.dat</tspan><tspan class="cy" x="300">geosite от roscomvpn + автообновление</tspan></text>
-  <text x="44" y="286"><tspan class="gr b">4)</tspan><tspan class="t" dx="8">Psiphon-выход</tspan><tspan class="cy" x="300">SOCKS для гео-заблокированных сервисов</tspan></text>
-  <text x="44" y="310"><tspan class="gr b">5)</tspan><tspan class="t" dx="8">Сменить заглушку</tspan><tspan class="cy" x="300">20 вариантов страницы для гостей</tspan></text>
-
-  <text class="t b" x="28" y="354">Панель</text>
-  <text x="44" y="378"><tspan class="gr b">6)</tspan><tspan class="t" dx="8">Добавить ноду в панель</tspan><tspan class="cy" x="300">профиль из образца + нода, по API</tspan></text>
-  <text x="44" y="402"><tspan class="gr b">7)</tspan><tspan class="t" dx="8">Связать две ноды</tspan><tspan class="cy" x="300">вход → shadowsocks-мост → выход</tspan></text>
-
-  <text x="28" y="446"><tspan class="t b">Стороннее</tspan><tspan class="ye" dx="8">(чужие установщики, запускаются как есть)</tspan></text>
-  <text x="44" y="470"><tspan class="ye b">8)</tspan><tspan class="t" dx="8">node-accelerator</tspan><tspan class="cy" x="300">оптимизация сети</tspan></text>
-  <text x="44" y="494"><tspan class="ye b">9)</tspan><tspan class="t" dx="8">reverse-proxy-pro</tspan><tspan class="cy" x="300">панель + reverse-proxy</tspan></text>
-
-  <text x="44" y="534"><tspan class="rd b">0)</tspan><tspan class="t" dx="8">Выход</tspan></text>
-
-  <text x="28" y="572"><tspan class="t b">Выбор:</tspan><tspan class="gr" dx="8">█</tspan></text>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="582" viewBox="0 0 800 582" xml:space="preserve" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="13.5">
+<rect width="800" height="582" rx="10" fill="#0d1117"/>
+<path d="M0 10a10 10 0 0 1 10-10h780a10 10 0 0 1 10 10v26H0z" fill="#161b22"/>
+<circle cx="22" cy="18" r="6" fill="#f85149"/>
+<circle cx="42" cy="18" r="6" fill="#d29922"/>
+<circle cx="62" cy="18" r="6" fill="#3fb950"/>
+<text x="400" y="23" text-anchor="middle" font-size="12" fill="#8b949e">root@node1: ~ — meridian</text>
+<text y="74"><tspan x="24.0" fill="#39c5cf" font-weight="700" textLength="483.6" lengthAdjust="spacingAndGlyphs">  ╔══════════════════════════════════════════════════════════╗</tspan></text>
+<text y="96"><tspan x="24.0" fill="#39c5cf" font-weight="700" textLength="483.6" lengthAdjust="spacingAndGlyphs">  ║            Remnawave Node Setup  ·  meridian             ║</tspan></text>
+<text y="118"><tspan x="24.0" fill="#39c5cf" font-weight="700" textLength="483.6" lengthAdjust="spacingAndGlyphs">  ╚══════════════════════════════════════════════════════════╝</tspan></text>
+<text y="140"><tspan x="24.0" fill="#c9d1d9">  </tspan><tspan x="39.6" fill="#c9d1d9" font-weight="700">домен:</tspan><tspan x="86.4" fill="#c9d1d9"> node1.example.com    </tspan><tspan x="258.0" fill="#c9d1d9" font-weight="700">нода:</tspan><tspan x="297.0" fill="#c9d1d9"> есть    </tspan><tspan x="367.2" fill="#c9d1d9" font-weight="700">psiphon:</tspan><tspan x="429.6" fill="#c9d1d9"> есть</tspan></text>
+<text y="184"><tspan x="24.0" fill="#c9d1d9">  </tspan><tspan x="39.6" fill="#c9d1d9" font-weight="700">Установка</tspan></text>
+<text y="206"><tspan x="24.0" fill="#c9d1d9">    </tspan><tspan x="55.2" fill="#3fb950">1)</tspan><tspan x="70.8" fill="#c9d1d9"> Полная установка ноды   </tspan><tspan x="265.8" fill="#39c5cf">firewall, ICMP, nginx, SSL, docker, remnanode</tspan></text>
+<text y="228"><tspan x="24.0" fill="#c9d1d9">    </tspan><tspan x="55.2" fill="#3fb950">2)</tspan><tspan x="70.8" fill="#c9d1d9"> fail2ban                </tspan><tspan x="265.8" fill="#39c5cf">бан перебора SSH</tspan></text>
+<text y="250"><tspan x="24.0" fill="#c9d1d9">    </tspan><tspan x="55.2" fill="#3fb950">3)</tspan><tspan x="70.8" fill="#c9d1d9"> roscom.dat              </tspan><tspan x="265.8" fill="#39c5cf">geosite от roscomvpn + автообновление</tspan></text>
+<text y="272"><tspan x="24.0" fill="#c9d1d9">    </tspan><tspan x="55.2" fill="#3fb950">4)</tspan><tspan x="70.8" fill="#c9d1d9"> Psiphon-выход           </tspan><tspan x="265.8" fill="#39c5cf">SOCKS для гео-заблокированных сервисов</tspan></text>
+<text y="294"><tspan x="24.0" fill="#c9d1d9">    </tspan><tspan x="55.2" fill="#3fb950">5)</tspan><tspan x="70.8" fill="#c9d1d9"> Сменить заглушку        </tspan><tspan x="265.8" fill="#39c5cf">20 вариантов страницы для случайных гостей</tspan></text>
+<text y="338"><tspan x="24.0" fill="#c9d1d9">  </tspan><tspan x="39.6" fill="#c9d1d9" font-weight="700">Панель</tspan></text>
+<text y="360"><tspan x="24.0" fill="#c9d1d9">    </tspan><tspan x="55.2" fill="#3fb950">6)</tspan><tspan x="70.8" fill="#c9d1d9"> Добавить ноду в панель  </tspan><tspan x="265.8" fill="#39c5cf">профиль из образца + нода, по API</tspan></text>
+<text y="382"><tspan x="24.0" fill="#c9d1d9">    </tspan><tspan x="55.2" fill="#3fb950">7)</tspan><tspan x="70.8" fill="#c9d1d9"> Связать две ноды        </tspan><tspan x="265.8" fill="#39c5cf">вход → shadowsocks-мост → выход</tspan></text>
+<text y="426"><tspan x="24.0" fill="#c9d1d9">  </tspan><tspan x="39.6" fill="#c9d1d9" font-weight="700">Стороннее</tspan><tspan x="109.8" fill="#c9d1d9"> </tspan><tspan x="117.6" fill="#d29922">(чужие установщики, запускаются как есть)</tspan></text>
+<text y="448"><tspan x="24.0" fill="#c9d1d9">    </tspan><tspan x="55.2" fill="#d29922">8)</tspan><tspan x="70.8" fill="#c9d1d9"> node-accelerator        </tspan><tspan x="265.8" fill="#39c5cf">оптимизация сети</tspan></text>
+<text y="470"><tspan x="24.0" fill="#c9d1d9">    </tspan><tspan x="55.2" fill="#d29922">9)</tspan><tspan x="70.8" fill="#c9d1d9"> reverse-proxy-pro       </tspan><tspan x="265.8" fill="#39c5cf">панель + reverse-proxy</tspan></text>
+<text y="514"><tspan x="24.0" fill="#c9d1d9">    </tspan><tspan x="55.2" fill="#f85149">0)</tspan><tspan x="70.8" fill="#c9d1d9"> Выход</tspan></text>
+<text y="558"><tspan x="24.0" fill="#c9d1d9">  </tspan><tspan x="39.6" fill="#c9d1d9" font-weight="700">Выбор: </tspan></text>
 </svg>

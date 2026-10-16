@@ -17,7 +17,7 @@
 #   sudo bash meridian.sh roscom
 #   sudo bash meridian.sh psiphon         # Psiphon-выход для xray (psiphon/, из Chara-Freedom/vps-psiphon)
 #
-# После первого запуска на сервере есть команда `allinone` (всегда тянет свежую версию с GitHub).
+# После первого запуска на сервере есть команда `meridian` (всегда тянет свежую версию с GitHub).
 #   sudo bash meridian.sh accelerator     # optional, 3rd-party
 #   sudo bash meridian.sh reverse-proxy   # optional, 3rd-party
 
@@ -33,7 +33,7 @@ STATE_FILE="/root/.remnanode-setup.env"
 NODE_DIR="/opt/remnanode"
 REPO_RAW="https://raw.githubusercontent.com/juhnsooqa/meridian/main"
 PANEL_STATE="/root/.remnawave-panel.env"
-CLI_PATH="/usr/local/bin/allinone"
+CLI_PATH="/usr/local/bin/meridian"
 
 require_root() {
     if [ "$EUID" -ne 0 ]; then
@@ -896,7 +896,7 @@ setup_psiphon() {
     command -v vps-psiphon &>/dev/null || { err "Установщик отработал, но команды vps-psiphon нет."; return 1; }
     # Пересобираем справочный профиль, чтобы в нём появился psiphon-out
     [ -f "${NODE_DIR}/panel-profile.reference.json" ] && write_panel_reference_files
-    log "Psiphon установлен. Управление: allinone -> Psiphon, или напрямую: vps-psiphon"
+    log "Psiphon установлен. Управление: meridian -> Psiphon, или напрямую: vps-psiphon"
 }
 
 psiphon_menu() {
@@ -1261,7 +1261,7 @@ full_install() {
     install_docker  || return 1
     setup_remnanode || return 1
     if [ -f "$PANEL_STATE" ]; then
-        register_node_in_panel || warn "Нода установлена, но в панель не добавлена - повторите: allinone panel"
+        register_node_in_panel || warn "Нода установлена, но в панель не добавлена - повторите: meridian panel"
     fi
     log "Базовая установка ноды завершена."
     read -rp "Настроить roscom.dat сейчас? [Y/n]: " a
@@ -1271,14 +1271,21 @@ full_install() {
 ### ---------------------------------------------------------------------
 ### Меню / CLI
 ### ---------------------------------------------------------------------
-# Команда `allinone` на сервере: каждый раз качает свежий скрипт с GitHub и запускает его.
+# Команда `meridian` на сервере: каждый раз качает свежий скрипт с GitHub и запускает его.
 install_cli() {
     cat > "$CLI_PATH" <<EOF
 #!/usr/bin/env bash
-s="\$(curl -fsSL ${REPO_RAW}/meridian.sh)" || { echo "allinone: не удалось скачать скрипт" >&2; exit 1; }
-exec bash -c "\$s" allinone "\$@"
+s="\$(curl -fsSL ${REPO_RAW}/meridian.sh)" || { echo "meridian: не удалось скачать скрипт" >&2; exit 1; }
+exec bash -c "\$s" meridian "\$@"
 EOF
     chmod 755 "$CLI_PATH"
+
+    # Команда раньше называлась allinone. Убираем старую, но только если это действительно
+    # наша обёртка, а не чей-то одноимённый файл.
+    local old="/usr/local/bin/allinone"
+    if [ -f "$old" ] && [ "$old" != "$CLI_PATH" ] && grep -q "raw.githubusercontent.com/juhnsooqa" "$old" 2>/dev/null; then
+        rm -f "$old" && log "Команда переехала: allinone -> meridian."
+    fi
 }
 
 print_menu() {

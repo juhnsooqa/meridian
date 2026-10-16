@@ -39,11 +39,11 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/juhnsooqa/meridian/
 
 Доступные аргументы: `full`, `fail2ban`, `roscom`, `psiphon`, `panel`, `link`, `stub`, `accelerator`, `reverse-proxy`.
 
-После первого запуска на сервере появляется команда `allinone` — открывает то же меню (каждый раз с последней версией скрипта с GitHub):
+После первого запуска на сервере появляется команда `meridian` — открывает то же меню (каждый раз с последней версией скрипта с GitHub):
 
 ```bash
-allinone            # меню
-allinone psiphon    # сразу меню Psiphon
+meridian            # меню
+meridian psiphon    # сразу меню Psiphon
 ```
 
 ## 🎛 Добавление ноды в панель (одна кнопка)
@@ -59,7 +59,7 @@ allinone psiphon    # сразу меню Psiphon
 <img src="assets/panel.svg" alt="Добавление ноды в панель" width="760">
 </div>
 
-Отдельно то же самое: пункт меню **6** или `allinone panel`. Токен и URL хранятся в `/root/.remnawave-panel.env` (chmod 600).
+Отдельно то же самое: пункт меню **6** или `meridian panel`. Токен и URL хранятся в `/root/.remnawave-panel.env` (chmod 600).
 
 Скрипт спрашивает два имени: **тег инбаунда** в конфиге (по умолчанию первая часть домена: `node1.example.com` → `node1`) и **имя профиля и ноды** в панели (по умолчанию — тот же тег, можно задать человеческое, например `Node 1`).
 
@@ -105,7 +105,7 @@ allinone psiphon    # сразу меню Psiphon
 **Связка нод** ([server-routing](https://docs.rw/learn/server-routing)): вход RU → выход за границей через Shadowsocks-мост.
 Ноды уже заведены в панели, связываются их существующие профили.
 
-Автоматически — пункт меню **7** или `allinone link`. Выбираете входную и выходную ноду из списка панели, дальше скрипт сам:
+Автоматически — пункт меню **7** или `meridian link`. Выбираете входную и выходную ноду из списка панели, дальше скрипт сам:
 
 1. дописывает инбаунд-мост `BRIDGE_<нода>` (shadowsocks, порт 9999) в профиль **выходной** ноды;
 2. включает этот инбаунд на самой ноде;
@@ -117,7 +117,7 @@ allinone psiphon    # сразу меню Psiphon
 Порт на выходной ноде скрипт откроет сам, если запущен на ней; иначе напомнит `ufw allow 9999`.
 
 <div align="center">
-<img src="assets/link.svg" alt="Связка нод: allinone link" width="760">
+<img src="assets/link.svg" alt="Связка нод: meridian link" width="760">
 </div>
 
 Руками то же самое — готовые куски для вставки:
@@ -143,7 +143,7 @@ allinone psiphon    # сразу меню Psiphon
 | `blog` — заметки | `portfolio` — тёмная сетка | `saas` — лендинг сервиса | `startup` — форма подписки |
 | `agency` — дизайн-студия | `shop` — магазин | `cafe` — кафе с меню | `all-good` — как было раньше |
 
-Выбор при установке, потом в любой момент — пункт меню **5** или `allinone stub`, можно сразу номером: `allinone stub 13`. Вариант `0` — случайный.
+Выбор при установке, потом в любой момент — пункт меню **5** или `meridian stub`, можно сразу номером: `meridian stub 13`. Вариант `0` — случайный.
 Все страницы автономные: inline-CSS, ни одного внешнего запроса, ни одного чужого бренда — иначе заглушка сама себя выдаёт.
 
 <table>
@@ -181,7 +181,7 @@ allinone psiphon    # сразу меню Psiphon
 | `/etc/nginx/conf.d/xray.conf` | 443 и 9443 с SSL, `/xhttppath/` в сокет xray |
 | `/etc/letsencrypt/live/<домен>/` | сертификаты, обновляет `certbot.timer` |
 | `/etc/default/vps-psiphon` | параметры Psiphon, оттуда берётся адрес `psiphon-out` |
-| `/usr/local/bin/allinone` | команда-обёртка, тянет свежий скрипт с GitHub |
+| `/usr/local/bin/meridian` | команда-обёртка, тянет свежий скрипт с GitHub |
 | `/var/log/roscom_update.log` | лог ночного обновления roscom.dat |
 
 ## 🙏 Благодарности

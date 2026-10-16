@@ -1,38 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400" viewBox="0 0 800 400" xml:space="preserve" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="14">
-  <defs>
-    <style>
-      .bg  { fill: #0d1117; }
-      .bar { fill: #161b22; }
-      .t   { fill: #c9d1d9; }
-      .dim { fill: #8b949e; }
-      .gr  { fill: #3fb950; }
-      .ye  { fill: #d29922; }
-      .b   { font-weight: 700; }
-    </style>
-  </defs>
-
-  <rect class="bg" width="800" height="400" rx="10"/>
-  <path class="bar" d="M0 10a10 10 0 0 1 10-10h780a10 10 0 0 1 10 10v26H0z"/>
-  <circle cx="22" cy="18" r="6" fill="#f85149"/>
-  <circle cx="42" cy="18" r="6" fill="#d29922"/>
-  <circle cx="62" cy="18" r="6" fill="#3fb950"/>
-  <text class="dim" x="400" y="23" text-anchor="middle" font-size="12">root@exit-de: ~ — allinone link</text>
-
-  <text x="24" y="72"><tspan class="dim"># </tspan><tspan class="t b">allinone link</tspan></text>
-
-  <text class="t b" x="24" y="104">Ноды в панели:</text>
-  <text class="t" x="24" y="126">  1) entry-1  [entry-1.example.com]  профиль: entry-profile</text>
-  <text class="t" x="24" y="148">  2) exit-de  [exit-de.example.com]  профиль: exit-profile</text>
-
-  <text x="24" y="180"><tspan class="t">Номер ВХОДНОЙ ноды (куда подключаются клиенты): </tspan><tspan class="t b">1</tspan></text>
-  <text x="24" y="202"><tspan class="t">Номер ВЫХОДНОЙ ноды (куда уходит трафик): </tspan><tspan class="t b">2</tspan></text>
-
-  <text x="24" y="238"><tspan class="gr b">[+]</tspan><tspan class="t"> [1/5] Инбаунд BRIDGE_exit-de:9999 в профиль выходной ноды exit-de...</tspan></text>
-  <text x="24" y="260"><tspan class="gr b">[+]</tspan><tspan class="t"> [2/5] Включаю BRIDGE_exit-de на ноде exit-de...</tspan></text>
-  <text x="24" y="282"><tspan class="gr b">[+]</tspan><tspan class="t"> [3/5] Squad bridge-exit-de только с мостом...</tspan></text>
-  <text x="24" y="304"><tspan class="gr b">[+]</tspan><tspan class="t"> [4/5] Сервисный юзер bridge_entry1_exitde (без лимита, до 2099)...</tspan></text>
-  <text x="24" y="326"><tspan class="gr b">[+]</tspan><tspan class="t"> [5/5] Outbound и правило в профиль входной ноды entry-1...</tspan></text>
-
-  <text x="24" y="358"><tspan class="gr b">[+]</tspan><tspan class="t"> Готово: entry-1 → exit-de (exit-de.example.com:9999)</tspan></text>
-  <text x="24" y="380"><tspan class="ye b">[!]</tspan><tspan class="t"> Порт 9999 (tcp+udp) открыт на этой (выходной) ноде.</tspan></text>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450" xml:space="preserve" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="13.5">
+<rect width="800" height="450" rx="10" fill="#0d1117"/>
+<path d="M0 10a10 10 0 0 1 10-10h780a10 10 0 0 1 10 10v26H0z" fill="#161b22"/>
+<circle cx="22" cy="18" r="6" fill="#f85149"/>
+<circle cx="42" cy="18" r="6" fill="#d29922"/>
+<circle cx="62" cy="18" r="6" fill="#3fb950"/>
+<text x="400" y="23" text-anchor="middle" font-size="12" fill="#8b949e">root@exit-de: ~ — meridian link</text>
+<text y="74"><tspan x="24.0" fill="#58a6ff"># </tspan><tspan x="39.6" fill="#c9d1d9" font-weight="700">meridian link</tspan></text>
+<text y="118"><tspan x="24.0" fill="#c9d1d9" font-weight="700">Ноды в панели:</tspan></text>
+<text y="140"><tspan x="24.0" fill="#c9d1d9">  1) entry-1  [entry-1.example.com]  профиль: entry-profile</tspan></text>
+<text y="162"><tspan x="24.0" fill="#c9d1d9">  2) exit-de  [exit-de.example.com]  профиль: exit-profile</tspan></text>
+<text y="184"><tspan x="24.0" fill="#c9d1d9">Номер ВХОДНОЙ ноды (куда подключаются клиенты): </tspan><tspan x="398.4" fill="#c9d1d9" font-weight="700">1</tspan></text>
+<text y="206"><tspan x="24.0" fill="#c9d1d9">Номер ВЫХОДНОЙ ноды (куда уходит трафик): </tspan><tspan x="351.6" fill="#c9d1d9" font-weight="700">2</tspan></text>
+<text y="228"><tspan x="24.0" fill="#c9d1d9">Порт моста на выходной ноде [9999]: </tspan></text>
+<text y="272"><tspan x="24.0" fill="#3fb950">[+]</tspan><tspan x="47.4" fill="#c9d1d9"> [1/5] Инбаунд BRIDGE_exit_de:9999 в профиль выходной ноды exit-de...</tspan></text>
+<text y="294"><tspan x="24.0" fill="#3fb950">[+]</tspan><tspan x="47.4" fill="#c9d1d9"> [2/5] Включаю BRIDGE_exit_de на ноде exit-de...</tspan></text>
+<text y="316"><tspan x="24.0" fill="#3fb950">[+]</tspan><tspan x="47.4" fill="#c9d1d9"> [3/5] Squad bridge-exit-de только с мостом...</tspan></text>
+<text y="338"><tspan x="24.0" fill="#3fb950">[+]</tspan><tspan x="47.4" fill="#c9d1d9"> [4/5] Сервисный юзер bridge_entry-1_exit-de (без лимита, до 2099)...</tspan></text>
+<text y="360"><tspan x="24.0" fill="#3fb950">[+]</tspan><tspan x="47.4" fill="#c9d1d9"> [5/5] Outbound и правило в профиль входной ноды entry-1...</tspan></text>
+<text y="382"><tspan x="24.0" fill="#3fb950">[+]</tspan><tspan x="47.4" fill="#c9d1d9"> Готово: entry-1 -&gt; exit-de (exit-de.example.com:9999), правило для инбаундов entry-1.</tspan></text>
+<text y="404"><tspan x="24.0" fill="#d29922">[!]</tspan><tspan x="47.4" fill="#c9d1d9"> На выходной ноде exit-de.example.com откройте порт: ufw allow 9999</tspan></text>
+<text y="426"><tspan x="24.0" fill="#d29922">[!]</tspan><tspan x="47.4" fill="#c9d1d9"> Трафик, который не поймали прежние правила профиля entry-1, теперь уходит в мост.</tspan></text>
 </svg>

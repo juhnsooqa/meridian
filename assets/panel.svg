@@ -1,38 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="376" viewBox="0 0 800 376" xml:space="preserve" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="13.5">
-  <defs>
-    <style>
-      .bg  { fill: #0d1117; }
-      .bar { fill: #161b22; }
-      .t   { fill: #c9d1d9; }
-      .dim { fill: #8b949e; }
-      .gr  { fill: #3fb950; }
-      .ye  { fill: #d29922; }
-      .cy  { fill: #39c5cf; }
-      .b   { font-weight: 700; }
-    </style>
-  </defs>
-
-  <rect class="bg" width="800" height="376" rx="10"/>
-  <path class="bar" d="M0 10a10 10 0 0 1 10-10h780a10 10 0 0 1 10 10v26H0z"/>
-  <circle cx="22" cy="18" r="6" fill="#f85149"/>
-  <circle cx="42" cy="18" r="6" fill="#d29922"/>
-  <circle cx="62" cy="18" r="6" fill="#3fb950"/>
-  <text class="dim" x="400" y="23" text-anchor="middle" font-size="12">root@node1: ~ — allinone panel</text>
-
-  <text x="24" y="66"><tspan class="dim"># </tspan><tspan class="t b">allinone panel</tspan></text>
-
-  <text class="t b" x="24" y="96">Профиль-образец (копируется целиком, меняются только теги и SNI):</text>
-  <text class="t"   x="24" y="118">  1) vless-xhttp</text>
-  <text class="t"   x="24" y="140">  2) vless-reality</text>
-  <text class="t"   x="24" y="162">  0) локальный /opt/remnanode/panel-profile.reference.json</text>
-
-  <text x="24" y="192"><tspan class="t">Номер [1]: </tspan><tspan class="t b">1</tspan></text>
-  <text x="24" y="214"><tspan class="t">Тег инбаунда в конфиге [node1]: </tspan><tspan class="t b">node1</tspan></text>
-  <text x="24" y="236"><tspan class="t">Имя профиля и ноды в панели [node1]: </tspan><tspan class="t b">Node 1</tspan></text>
-  <text x="24" y="258"><tspan class="t">Код страны ноды (2 буквы) [XX]: </tspan><tspan class="t b">FI</tspan></text>
-
-  <text x="24" y="290"><tspan class="gr b">[+]</tspan><tspan class="t"> psiphon-out направлен на 172.17.0.1:1080.</tspan></text>
-  <text x="24" y="312"><tspan class="gr b">[+]</tspan><tspan class="t"> Создаю профиль Node 1, теги: </tspan><tspan class="cy">node1</tspan></text>
-  <text x="24" y="334"><tspan class="gr b">[+]</tspan><tspan class="t"> Нода Node 1 (node1.example.com:2222) добавлена, инбаунды включены.</tspan></text>
-  <text x="24" y="358"><tspan class="ye b">[!]</tspan><tspan class="t"> Хосты скрипт не создаёт — настройки в panel-hosts.txt</tspan></text>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="406" viewBox="0 0 800 406" xml:space="preserve" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="13.5">
+<rect width="800" height="406" rx="10" fill="#0d1117"/>
+<path d="M0 10a10 10 0 0 1 10-10h780a10 10 0 0 1 10 10v26H0z" fill="#161b22"/>
+<circle cx="22" cy="18" r="6" fill="#f85149"/>
+<circle cx="42" cy="18" r="6" fill="#d29922"/>
+<circle cx="62" cy="18" r="6" fill="#3fb950"/>
+<text x="400" y="23" text-anchor="middle" font-size="12" fill="#8b949e">root@node1: ~ — meridian panel</text>
+<text y="74"><tspan x="24.0" fill="#58a6ff"># </tspan><tspan x="39.6" fill="#c9d1d9" font-weight="700">meridian panel</tspan></text>
+<text y="118"><tspan x="24.0" fill="#c9d1d9" font-weight="700">Профиль-образец (копируется целиком, меняются только теги и SNI):</tspan></text>
+<text y="140"><tspan x="24.0" fill="#c9d1d9">  1) vless-xhttp</tspan></text>
+<text y="162"><tspan x="24.0" fill="#c9d1d9">  2) vless-reality</tspan></text>
+<text y="184"><tspan x="24.0" fill="#c9d1d9">  0) локальный /opt/remnanode/panel-profile.reference.json</tspan></text>
+<text y="206"><tspan x="24.0" fill="#c9d1d9">Номер [1]: </tspan><tspan x="109.8" fill="#c9d1d9" font-weight="700">1</tspan></text>
+<text y="228"><tspan x="24.0" fill="#c9d1d9">Тег инбаунда в конфиге [node1]: </tspan><tspan x="273.6" fill="#c9d1d9" font-weight="700">node1</tspan></text>
+<text y="250"><tspan x="24.0" fill="#c9d1d9">Имя профиля и ноды в панели [node1]: </tspan><tspan x="312.6" fill="#c9d1d9" font-weight="700">Node 1</tspan></text>
+<text y="272"><tspan x="24.0" fill="#c9d1d9">Код страны ноды (2 буквы) [XX]: </tspan><tspan x="273.6" fill="#c9d1d9" font-weight="700">FI</tspan></text>
+<text y="316"><tspan x="24.0" fill="#3fb950">[+]</tspan><tspan x="47.4" fill="#c9d1d9"> psiphon-out направлен на 172.17.0.1:1080.</tspan></text>
+<text y="338"><tspan x="24.0" fill="#3fb950">[+]</tspan><tspan x="47.4" fill="#c9d1d9"> Создаю профиль Node 1, теги: node1</tspan></text>
+<text y="360"><tspan x="24.0" fill="#3fb950">[+]</tspan><tspan x="47.4" fill="#c9d1d9"> Нода Node 1 (node1.example.com:2222) добавлена в панель, все инбаунды включены.</tspan></text>
+<text y="382"><tspan x="24.0" fill="#d29922">[!]</tspan><tspan x="47.4" fill="#c9d1d9"> Хосты скрипт не создаёт - настройки для них в /opt/remnanode/panel-hosts.txt.</tspan></text>
 </svg>
