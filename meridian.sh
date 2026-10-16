@@ -23,7 +23,7 @@
 
 set -uo pipefail
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
 log()  { echo -e "${GREEN}[+]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
@@ -125,28 +125,69 @@ load_common_vars() {
     SECRET_KEY=$(trim_value "$SECRET_KEY")
     NODE_PORT=$(trim_value "$NODE_PORT")
 
-    # %q, а не кавычки: файл потом source-ится от root, и кавычка или $(…) в значении стала бы командой
-    cat > "$STATE_FILE" <<EOF
-DOMAIN=$(printf '%q' "$DOMAIN")
-EMAIL=$(printf '%q' "$EMAIL")
-SECRET_KEY=$(printf '%q' "$SECRET_KEY")
-NODE_PORT=$(printf '%q' "$NODE_PORT")
-EOF
+    save_state
+}
+
+save_state() {
+    # %q, а не кавычки: файл потом source-ится от root, и кавычка или $(…) в значении стала бы командой.
+    # PANEL_IP пишем только если его уже спрашивали: иначе пустое значение выглядело бы как ответ.
+    {
+        printf 'DOMAIN=%q\nEMAIL=%q\nSECRET_KEY=%q\nNODE_PORT=%q\n' "$DOMAIN" "$EMAIL" "$SECRET_KEY" "$NODE_PORT"
+        [ -n "${PANEL_IP+x}" ] && printf 'PANEL_IP=%q\n' "$PANEL_IP"
+    } > "$STATE_FILE"
     chmod 600 "$STATE_FILE"
 }
 
 ### ---------------------------------------------------------------------
 ### 1. Firewall (remnawave-guide)
 ### ---------------------------------------------------------------------
+# Порты, на которых реально слушает sshd, плюс порт текущей ssh-сессии.
+# `ufw allow OpenSSH` открывает только 22: при sshd на другом порту включение ufw отрезало бы сервер.
+ssh_ports() {
+    {
+        sshd -T 2>/dev/null | awk '$1 == "port" { print $2 }'
+        [ -n "${SSH_CONNECTION:-}" ] && echo "${SSH_CONNECTION##* }"
+    } | grep -E '^[0-9]+$' | sort -un
+}
+
+# IP, с которого панель ходит на ноду. Из URL панели его брать нельзя без вопроса:
+# за Cloudflare или другим прокси домен панели резолвится не в её сервер.
+ask_panel_ip() {
+    [ -n "${PANEL_IP+x}" ] && return 0
+    local guess="" host
+    [ -f "$PANEL_STATE" ] && guess=$(. "$PANEL_STATE" 2>/dev/null; host="${PANEL_URL#*://}"; host="${host%%[/:]*}"
+        [ -n "$host" ] && getent ahostsv4 "$host" | awk 'NR == 1 { print $1 }')
+    [ -n "$guess" ] && warn "Домен панели резолвится в ${guess}. Если панель за Cloudflare/прокси - это не её IP, введите IP сервера панели."
+    ask "IP сервера панели - только ему откроется порт ${NODE_PORT} (пусто = открыть всем)" PANEL_IP "$guess"
+    PANEL_IP=$(trim_value "$PANEL_IP")
+    save_state
+}
+
 setup_firewall() {
     load_common_vars
+    ask_panel_ip
     log "Установка и настройка UFW..."
-    apt update -y && apt install -y ufw
+    { apt update -y && apt install -y ufw; } || { err "Не удалось установить ufw."; return 1; }
+
+    local ports p
+    ports=$(ssh_ports)
+    [ -n "$ports" ] || ports=22
     # Явно, а не на дефолт Ubuntu: на обжитой машине политику мог изменить предыдущий админ
     ufw default deny incoming
     ufw default allow outgoing
-    ufw allow OpenSSH
-    ufw allow "${NODE_PORT}/tcp"
+    for p in $ports; do
+        ufw allow "${p}/tcp" comment 'ssh'
+    done
+    log "SSH: открыт порт(ы) $(echo $ports)."
+
+    # Порт ноды нужен только панели. Правило «всем» от прошлых запусков убираем, иначе оно перекроет ограничение.
+    if [ -n "$PANEL_IP" ]; then
+        ufw --force delete allow "${NODE_PORT}/tcp" >/dev/null 2>&1 || true
+        ufw allow from "$PANEL_IP" to any port "$NODE_PORT" proto tcp comment 'remnawave panel'
+    else
+        warn "IP панели не задан - порт ${NODE_PORT} открыт для всех."
+        ufw allow "${NODE_PORT}/tcp"
+    fi
     ufw allow 80/tcp
     ufw allow 443/tcp
     ufw allow 9443/tcp
@@ -157,22 +198,26 @@ setup_firewall() {
     log "UFW настроен и включён."
 }
 
+# Режем только ping (echo-request), по IPv4 и IPv6. destination-unreachable, time-exceeded и
+# parameter-problem не трогаем: на них держится Path MTU Discovery, без него соединения клиентов
+# за туннелями/PPPoE зависают на больших пакетах.
 block_icmp() {
-    log "Блокировка ICMP-запросов..."
-    local f=/etc/ufw/before.rules
-    cp "$f" "${f}.bak.$(date +%s)"
+    log "Блокировка ping (ICMP echo-request)..."
+    local f4=/etc/ufw/before.rules f6=/etc/ufw/before6.rules ts t
+    ts=$(date +%s)
+    cp "$f4" "${f4}.bak.${ts}"
+    [ -f "$f6" ] && cp "$f6" "${f6}.bak.${ts}"
 
-    local t
-    for t in destination-unreachable time-exceeded parameter-problem echo-request source-quench; do
-        sed -i "s/-A ufw-before-input -p icmp --icmp-type ${t} -j ACCEPT/-A ufw-before-input -p icmp --icmp-type ${t} -j DROP/" "$f"
+    # Старые версии скрипта дропали и служебный ICMP - возвращаем его на место
+    for t in destination-unreachable time-exceeded parameter-problem; do
+        sed -i -E "s/^(-A ufw-before-(input|forward) -p icmp --icmp-type ${t}) -j DROP/\1 -j ACCEPT/" "$f4"
     done
-    for t in destination-unreachable time-exceeded parameter-problem echo-request; do
-        sed -i "s/-A ufw-before-forward -p icmp --icmp-type ${t} -j ACCEPT/-A ufw-before-forward -p icmp --icmp-type ${t} -j DROP/" "$f"
-    done
+    sed -i -E "s/^(-A ufw-before-(input|forward) -p icmp --icmp-type echo-request) -j ACCEPT/\1 -j DROP/" "$f4"
+    [ -f "$f6" ] && sed -i -E "s/^(-A ufw6-before-(input|forward) -p icmpv6 --icmpv6-type echo-request) -j ACCEPT/\1 -j DROP/" "$f6"
 
     ufw --force disable
     ufw --force enable
-    log "ICMP заблокирован (бэкап правил: ${f}.bak.*)."
+    log "Ping заблокирован (бэкап правил: ${f4}.bak.${ts})."
 }
 
 ### ---------------------------------------------------------------------
@@ -195,7 +240,7 @@ install_nginx() {
     printf 'Package: *\nPin: origin nginx.org\nPin: release o=nginx\nPin-Priority: 900\n' \
         | tee /etc/apt/preferences.d/99nginx >/dev/null
     apt update -y
-    apt install -y nginx
+    apt install -y nginx || { err "Не удалось установить nginx."; return 1; }
     systemctl enable --now nginx
     log "nginx установлен."
 }
@@ -345,7 +390,7 @@ server {
     }
 }
 EOF
-    nginx -t && systemctl restart nginx
+    nginx -t && systemctl restart nginx || { err "nginx не принял конфиг - см. вывод nginx -t выше."; return 1; }
     log "nginx настроен и перезапущен."
 }
 
@@ -360,12 +405,14 @@ install_docker() {
     log "Установка Docker..."
     local installer
     installer=$(mktemp) || return 1
+    local rc=0
     if curl -fsSL https://get.docker.com -o "$installer"; then
-        sh "$installer"
+        sh "$installer" || { err "Установщик Docker завершился с ошибкой."; rc=1; }
     else
-        err "Не удалось скачать установщик Docker."
+        err "Не удалось скачать установщик Docker."; rc=1
     fi
     rm -f "$installer"
+    return "$rc"
 }
 
 setup_remnanode() {
@@ -432,7 +479,7 @@ services:
       - ${NODE_DIR}/.env
 EOF
 
-    (cd "$NODE_DIR" && docker compose up -d)
+    (cd "$NODE_DIR" && docker compose up -d) || { err "docker compose up не удался."; return 1; }
     log "remnanode запущен. Логи: docker compose -f ${NODE_DIR}/docker-compose.yml logs -f"
 
     write_panel_reference_files
@@ -1048,8 +1095,8 @@ link_nodes_via_bridge() {
     in_node=$(jq -e ".response[$((n_in-1))]" <<<"$nodes")  || { err "Нет ноды с номером $n_in."; return 1; }
     out_node=$(jq -e ".response[$((n_out-1))]" <<<"$nodes") || { err "Нет ноды с номером $n_out."; return 1; }
 
-    local in_uuid in_name in_profile out_uuid out_name out_addr out_profile
-    in_uuid=$(jq -r '.uuid' <<<"$in_node");   in_name=$(jq -r '.name' <<<"$in_node")
+    local in_name in_profile out_uuid out_name out_addr out_profile
+    in_name=$(jq -r '.name' <<<"$in_node")
     in_profile=$(jq -r '.configProfile.activeConfigProfileUuid // empty' <<<"$in_node")
     out_uuid=$(jq -r '.uuid' <<<"$out_node"); out_name=$(jq -r '.name' <<<"$out_node")
     out_addr=$(jq -r '.address' <<<"$out_node")
@@ -1193,6 +1240,7 @@ change_root_password() {
 }
 
 full_install() {
+    local a
     change_root_password
     # Панель спрашиваем первой: по её API берётся SECRET_KEY, а в конце туда же добавляется нода.
     if [ ! -f "$PANEL_STATE" ]; then
@@ -1203,15 +1251,18 @@ full_install() {
         fi
     fi
     load_common_vars
-    setup_firewall
-    block_icmp
-    install_nginx
-    create_stub
-    issue_ssl || { err "Без сертификата дальше нельзя. Исправьте DNS и запустите снова."; return 1; }
-    configure_nginx
-    install_docker
-    setup_remnanode
-    [ -f "$PANEL_STATE" ] && register_node_in_panel
+    # Каждый шаг опирается на предыдущий: на первой ошибке останавливаемся, а не идём дальше вслепую
+    setup_firewall  || { err "Firewall не настроен, установка остановлена."; return 1; }
+    block_icmp      || return 1
+    install_nginx   || return 1
+    create_stub     || return 1
+    issue_ssl       || { err "Без сертификата дальше нельзя. Исправьте DNS и запустите снова."; return 1; }
+    configure_nginx || return 1
+    install_docker  || return 1
+    setup_remnanode || return 1
+    if [ -f "$PANEL_STATE" ]; then
+        register_node_in_panel || warn "Нода установлена, но в панель не добавлена - повторите: allinone panel"
+    fi
     log "Базовая установка ноды завершена."
     read -rp "Настроить roscom.dat сейчас? [Y/n]: " a
     [[ "$a" =~ ^[Nn]$ ]] || setup_roscom

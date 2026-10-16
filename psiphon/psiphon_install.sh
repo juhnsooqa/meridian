@@ -936,7 +936,7 @@ say "waiting for the tunnel"
 # success-shaped exit 0. systemd reports an auto-restarting unit as "activating", so
 # anything but "active" here is the failure, caught in ~3 s.
 TUNNEL_UP=0
-for i in $(seq 1 60); do
+for _ in $(seq 1 60); do
   systemctl is-active --quiet vps-psiphon.service || break
   docker logs "$NAME" 2>&1 | grep -q '"noticeType":"Tunnels"' && { TUNNEL_UP=1; break; }
   sleep 2
