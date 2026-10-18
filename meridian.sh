@@ -103,6 +103,24 @@ ask_secret() { # ask_secret "prompt" varname - ввод без эха, чтоб�
     printf -v "$__var" '%s' "$reply"
 }
 
+# Два разных сценария, которые раньше смешивались в один вопрос:
+#   с панелью  - ключ выдаёт её API (GET /api/keygen), спрашивать нечего;
+#   без панели - ключ копируют из панели руками, с двойным вводом и подтверждением.
+obtain_secret_key() {
+    local a
+    if [ -f "$PANEL_STATE" ]; then
+        SECRET_KEY="$(panel_secret_key)"
+        if [ -n "${SECRET_KEY:-}" ]; then
+            log "SECRET_KEY получен из панели по API - вводить его не нужно."
+            return 0
+        fi
+        err "Панель не отдала SECRET_KEY. Проверь доступ: meridian panel"
+        read -rp "Ввести ключ вручную? [y/N]: " a
+        [[ "$a" =~ ^[Yy]$ ]] || return 1
+    fi
+    ask_secret_key
+}
+
 load_common_vars() {
     [ -f "$STATE_FILE" ] && source "$STATE_FILE"
     if [ -z "${DOMAIN:-}" ]; then
@@ -113,10 +131,7 @@ load_common_vars() {
     if [ -z "${EMAIL+x}" ]; then
         ask "Email для Let's Encrypt (пусто = без email)" EMAIL ""
     fi
-    if [ -z "${SECRET_KEY:-}" ]; then
-        SECRET_KEY="$(panel_secret_key)" && [ -n "$SECRET_KEY" ] && log "SECRET_KEY получен из панели по API."
-    fi
-    [ -z "${SECRET_KEY:-}" ] && ask_secret_key
+    [ -z "${SECRET_KEY:-}" ] && { obtain_secret_key || return 1; }
     if [ -z "${NODE_PORT:-}" ]; then
         ask "Порт ноды (NODE_PORT, панель ходит на него)" NODE_PORT "2222"
     fi
@@ -218,6 +233,41 @@ block_icmp() {
     ufw --force disable
     ufw --force enable
     log "Ping заблокирован (бэкап правил: ${f4}.bak.${ts})."
+}
+
+### ---------------------------------------------------------------------
+### 1.5 Отключение IPv6
+### ---------------------------------------------------------------------
+# На VPS часто есть IPv6-адрес без рабочего маршрута: docker и curl уходят в него
+# и висят до таймаута. Отключаем целиком, но сначала проверяем две вещи, которые
+# иначе отрежут тебе доступ: твой же SSH и AAAA-запись домена.
+disable_ipv6() {
+    local conf=/etc/sysctl.d/99-meridian-no-ipv6.conf a ssh_src
+    [ -f "$STATE_FILE" ] && source "$STATE_FILE"
+
+    if [ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null)" = "1" ]; then
+        log "IPv6 уже отключён."
+        return 0
+    fi
+
+    ssh_src="${SSH_CONNECTION%% *}"
+    if [[ "$ssh_src" == *:*:* ]]; then
+        err "Ты подключён по IPv6 (${ssh_src}) - отключение оборвёт эту сессию."
+        warn "Зайди по IPv4 и повтори: meridian ipv6"
+        return 1
+    fi
+
+    if [ -n "${DOMAIN:-}" ] && getent ahostsv6 "$DOMAIN" >/dev/null 2>&1; then
+        warn "У ${DOMAIN} есть AAAA-запись: клиенты с IPv6 пойдут на неё и упрутся в тишину,"
+        warn "а certbot не сможет пройти проверку. Сначала убери AAAA в DNS."
+        read -rp "Всё равно отключить IPv6? [y/N]: " a
+        [[ "$a" =~ ^[Yy]$ ]] || { log "IPv6 оставлен включённым."; return 0; }
+    fi
+
+    # lo не трогаем: на ::1 рассчитывают многие локальные службы
+    printf 'net.ipv6.conf.all.disable_ipv6=1\nnet.ipv6.conf.default.disable_ipv6=1\n' > "$conf"
+    sysctl -q --system || { err "sysctl не применил настройки."; return 1; }
+    log "IPv6 отключён. Вернуть: rm ${conf} && sysctl --system"
 }
 
 ### ---------------------------------------------------------------------
@@ -931,11 +981,24 @@ psiphon_menu() {
 ### ---------------------------------------------------------------------
 need_jq() { command -v jq &>/dev/null || { apt update -y; apt install -y jq; }; }
 
+# Вход в панель: данные проверяются сразу запросом к API, а не в конце установки,
+# когда нода уже поднята, а токен оказался неверным.
 load_panel_vars() {
+    local a
     [ -f "$PANEL_STATE" ] && source "$PANEL_STATE"
-    [ -n "${PANEL_URL:-}" ]   || ask "URL панели (https://panel.example.com)" PANEL_URL
-    [ -n "${PANEL_TOKEN:-}" ] || ask_secret "API-токен панели (в панели: Настройки -> API токены)" PANEL_TOKEN
-    PANEL_URL="${PANEL_URL%/}"
+    while true; do
+        [ -n "${PANEL_URL:-}" ]   || ask "URL панели (https://panel.example.com)" PANEL_URL
+        [ -n "${PANEL_TOKEN:-}" ] || ask_secret "API-токен панели (в панели: Настройки -> API токены)" PANEL_TOKEN
+        PANEL_URL="${PANEL_URL%/}"
+        if panel_api GET nodes >/dev/null 2>&1; then
+            log "Вход в панель выполнен: ${PANEL_URL}"
+            break
+        fi
+        err "Панель не ответила или токен неверный: ${PANEL_URL}"
+        read -rp "Ввести данные заново? [Y/n]: " a
+        [[ "$a" =~ ^[Nn]$ ]] && return 1
+        PANEL_URL=""; PANEL_TOKEN=""
+    done
     cat > "$PANEL_STATE" <<EOF
 PANEL_URL=$(printf '%q' "$PANEL_URL")
 PANEL_TOKEN=$(printf '%q' "$PANEL_TOKEN")
@@ -1241,16 +1304,22 @@ change_root_password() {
 
 full_install() {
     local a
-    change_root_password
-    # Панель спрашиваем первой: по её API берётся SECRET_KEY, а в конце туда же добавляется нода.
+    # Вход в панель - до всего остального: оттуда берётся SECRET_KEY ноды, и лучше
+    # узнать о неверном токене сейчас, чем после установки.
     if [ ! -f "$PANEL_STATE" ]; then
         read -rp "Добавить ноду в панель автоматически по API (нужен токен)? [Y/n]: " a
         if [[ ! "$a" =~ ^[Nn]$ ]]; then
             need_jq
-            load_panel_vars
+            load_panel_vars || warn "Без панели: SECRET_KEY ноды придётся ввести вручную."
         fi
     fi
-    load_common_vars
+
+    change_root_password
+
+    read -rp "Отключить IPv6? [Y/n]: " a
+    [[ "$a" =~ ^[Nn]$ ]] || disable_ipv6
+
+    load_common_vars || return 1
     # Каждый шаг опирается на предыдущий: на первой ошибке останавливаемся, а не идём дальше вслепую
     setup_firewall  || { err "Firewall не настроен, установка остановлена."; return 1; }
     block_icmp      || return 1
@@ -1308,14 +1377,15 @@ print_menu() {
     echo -e "    ${GREEN}3)${NC} roscom.dat              ${CYAN}geosite от roscomvpn + автообновление${NC}"
     echo -e "    ${GREEN}4)${NC} Psiphon-выход           ${CYAN}SOCKS для гео-заблокированных сервисов${NC}"
     echo -e "    ${GREEN}5)${NC} Сменить заглушку        ${CYAN}20 вариантов страницы для случайных гостей${NC}"
+    echo -e "    ${GREEN}6)${NC} Отключить IPv6          ${CYAN}когда адрес есть, а маршрута нет${NC}"
     echo
     echo -e "  ${BOLD}Панель${NC}"
-    echo -e "    ${GREEN}6)${NC} Добавить ноду в панель  ${CYAN}профиль из образца + нода, по API${NC}"
-    echo -e "    ${GREEN}7)${NC} Связать две ноды        ${CYAN}вход → shadowsocks-мост → выход${NC}"
+    echo -e "    ${GREEN}7)${NC} Добавить ноду в панель  ${CYAN}профиль из образца + нода, по API${NC}"
+    echo -e "    ${GREEN}8)${NC} Связать две ноды        ${CYAN}вход → shadowsocks-мост → выход${NC}"
     echo
     echo -e "  ${BOLD}Стороннее${NC} ${YELLOW}(чужие установщики, запускаются как есть)${NC}"
-    echo -e "    ${YELLOW}8)${NC} node-accelerator        ${CYAN}оптимизация сети${NC}"
-    echo -e "    ${YELLOW}9)${NC} reverse-proxy-pro       ${CYAN}панель + reverse-proxy${NC}"
+    echo -e "    ${YELLOW}9)${NC} node-accelerator        ${CYAN}оптимизация сети${NC}"
+    echo -e "   ${YELLOW}10)${NC} reverse-proxy-pro       ${CYAN}панель + reverse-proxy${NC}"
     echo
     echo -e "    ${RED}0)${NC} Выход"
     echo
@@ -1335,6 +1405,7 @@ main() {
         panel)          register_node_in_panel ;;
         link)           link_nodes_via_bridge ;;
         stub)           create_stub "${2:-}" ;;
+        ipv6)           disable_ipv6 ;;
         accelerator)    run_node_accelerator ;;
         reverse-proxy)  run_reverse_proxy_pro ;;
         "")
@@ -1347,10 +1418,11 @@ main() {
                     3) setup_roscom ;;
                     4) psiphon_menu ;;
                     5) create_stub && { systemctl reload nginx 2>/dev/null; log "Заглушка обновлена."; } ;;
-                    6) register_node_in_panel ;;
-                    7) link_nodes_via_bridge ;;
-                    8) run_node_accelerator ;;
-                    9) run_reverse_proxy_pro ;;
+                    6) disable_ipv6 ;;
+                    7) register_node_in_panel ;;
+                    8) link_nodes_via_bridge ;;
+                    9) run_node_accelerator ;;
+                    10) run_reverse_proxy_pro ;;
                     0) exit 0 ;;
                     *) warn "Неверный выбор" ;;
                 esac
@@ -1359,7 +1431,7 @@ main() {
             ;;
         *)
             err "Неизвестный аргумент: $1"
-            echo "Использование: $0 [full|fail2ban|roscom|psiphon|panel|link|stub [N]|accelerator|reverse-proxy]"
+            echo "Использование: $0 [full|fail2ban|roscom|psiphon|panel|link|stub [N]|ipv6|accelerator|reverse-proxy]"
             exit 1
             ;;
     esac
