@@ -287,27 +287,76 @@ tune_network() {
     grep -qw bbr /proc/sys/net/ipv4/tcp_available_congestion_control \
         || { cc=$(cat /proc/sys/net/ipv4/tcp_congestion_control); warn "Ядро без BBR - оставляю ${cc}."; }
 
+    # ip_forward, rp_filter и udp_mem намеренно не трогаем: forward=0 отрезает docker-контейнерам
+    # интернет, strict rp_filter ломает WARP/мосты, а фиксированный udp_mem меньше авто-значения ядра.
     cat > "$conf" <<EOF
 # meridian tune: BBR + буферы под длинный канал с потерями
+# --- база ---
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = ${cc}
-net.core.rmem_max = 67108864
-net.core.wmem_max = 67108864
-net.ipv4.tcp_rmem = 4096 131072 67108864
-net.ipv4.tcp_wmem = 4096 65536 67108864
-# меньше очереди в сокете - меньше задержка у интерактива при параллельной закачке
-net.ipv4.tcp_notsent_lowat = 131072
+net.ipv4.tcp_syncookies = 1
+vm.swappiness = 10
+vm.dirty_ratio = 6
+vm.dirty_background_ratio = 3
+
+# --- очереди и порты ---
+# верх 60999: на 127.0.0.1:61000 слушает внутренний API xray, исходящее не должно его занять
+net.ipv4.ip_local_port_range = 10000 60999
+net.core.netdev_max_backlog = 16384
+net.core.somaxconn = 65535
+net.ipv4.tcp_max_syn_backlog = 65535
+
+# --- таймауты: быстрее отпускать мёртвые сокеты (мобильный NAT) ---
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_keepalive_time = 45
+net.ipv4.tcp_keepalive_intvl = 15
+net.ipv4.tcp_keepalive_probes = 3
+net.ipv4.tcp_max_tw_buckets = 524288
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_orphan_retries = 2
+net.ipv4.tcp_retries2 = 8
+net.ipv4.tcp_syn_retries = 3
+net.ipv4.tcp_synack_retries = 3
+net.ipv4.tcp_rfc1337 = 1
 # лента: пауза между роликами не должна сбрасывать скорость к нулю
 net.ipv4.tcp_slow_start_after_idle = 0
-# клиенты за PPPoE/туннелями: не виснуть на больших пакетах
+
+# --- буферы: BBR заполняет трубу на RTT 40-60 мс ---
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.core.rmem_default = 212992
+net.core.wmem_default = 212992
+net.ipv4.tcp_rmem = 8192 262144 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
+net.ipv4.udp_rmem_min = 16384
+net.ipv4.udp_wmem_min = 16384
+net.ipv4.tcp_window_scaling = 1
+net.ipv4.tcp_moderate_rcvbuf = 1
+# меньше очереди в сокете - меньше bufferbloat у ws/grpc/xhttp
+net.ipv4.tcp_notsent_lowat = 32768
+
+# --- MTU: провайдеры режут ICMP fragmentation-needed ---
 net.ipv4.tcp_mtu_probing = 1
-net.ipv4.tcp_fastopen = 3
-net.ipv4.tcp_tw_reuse = 1
-net.ipv4.ip_local_port_range = 10000 65535
-net.core.somaxconn = 65535
-net.core.netdev_max_backlog = 16384
-net.ipv4.tcp_max_syn_backlog = 8192
-fs.file-max = 1048576
+net.ipv4.tcp_mtu_probe_floor = 1240
+
+# --- потери и reordering (мобильные сети, DPI) ---
+net.ipv4.tcp_recovery = 1
+net.ipv4.tcp_reordering = 15
+net.ipv4.tcp_max_reordering = 300
+net.ipv4.tcp_sack = 1
+net.ipv4.tcp_dsack = 1
+net.ipv4.tcp_timestamps = 1
+# DPI портит ECN-биты -> сброс окна BBR
+net.ipv4.tcp_ecn = 0
+net.ipv4.tcp_fastopen = 0
+net.ipv4.tcp_autocorking = 0
+net.ipv4.tcp_limit_output_bytes = 1048576
+net.ipv4.tcp_min_tso_segs = 2
+
+# --- дескрипторы ---
+fs.file-max = 2097152
+fs.inotify.max_user_instances = 8192
+fs.inotify.max_user_watches = 524288
 EOF
     # conntrack (его включает ufw): при переполнении новые соединения молча дропаются,
     # а дефолтные 5 суток жизни established забивают таблицу у VPN-ноды за день
@@ -316,7 +365,7 @@ net.netfilter.nf_conntrack_max = 262144
 net.netfilter.nf_conntrack_tcp_timeout_established = 7200
 EOF
     sysctl -q -p "$conf" || { err "sysctl не применил ${conf}."; return 1; }
-    log "Ядро: $(sysctl -n net.ipv4.tcp_congestion_control) + $(sysctl -n net.core.default_qdisc), буферы 64 МБ."
+    log "Ядро: $(sysctl -n net.ipv4.tcp_congestion_control) + $(sysctl -n net.core.default_qdisc), буферы 16 МБ."
 
     command -v nginx &>/dev/null || return 0
     local main=/etc/nginx/nginx.conf site=/etc/nginx/conf.d/xray.conf ts
