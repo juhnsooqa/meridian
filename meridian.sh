@@ -16,6 +16,7 @@
 #   sudo bash meridian.sh fail2ban
 #   sudo bash meridian.sh roscom
 #   sudo bash meridian.sh psiphon         # Psiphon-выход для xray (psiphon/, из Chara-Freedom/vps-psiphon)
+#   sudo bash meridian.sh tune            # BBR, буферы, conntrack, nginx без буферизации xhttp
 #
 # После первого запуска на сервере есть команда `meridian` (всегда тянет свежую версию с GitHub).
 #   sudo bash meridian.sh accelerator     # optional, 3rd-party
@@ -271,6 +272,75 @@ disable_ipv6() {
 }
 
 ### ---------------------------------------------------------------------
+### 1.6 Тюнинг сети (TikTok/Instagram/видео не лагают)
+### ---------------------------------------------------------------------
+# Канал РФ↔Европа длинный и с потерями: дефолтный cubic на первой же потере режет скорость вдвое,
+# а мелкие буферы не дают разогнаться на 40-60 мс. Отсюда «лента грузится рывками».
+# Плюс nginx: по умолчанию буферизует xhttp-поток и держит всего 1024 соединения на воркер.
+tune_network() {
+    log "Тюнинг сети..."
+    local conf=/etc/sysctl.d/99-meridian-net.conf cc=bbr
+    modprobe tcp_bbr 2>/dev/null
+    modprobe nf_conntrack 2>/dev/null
+    mkdir -p /etc/modules-load.d
+    printf 'tcp_bbr\nnf_conntrack\n' > /etc/modules-load.d/meridian.conf
+    grep -qw bbr /proc/sys/net/ipv4/tcp_available_congestion_control \
+        || { cc=$(cat /proc/sys/net/ipv4/tcp_congestion_control); warn "Ядро без BBR - оставляю ${cc}."; }
+
+    cat > "$conf" <<EOF
+# meridian tune: BBR + буферы под длинный канал с потерями
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = ${cc}
+net.core.rmem_max = 67108864
+net.core.wmem_max = 67108864
+net.ipv4.tcp_rmem = 4096 131072 67108864
+net.ipv4.tcp_wmem = 4096 65536 67108864
+# меньше очереди в сокете - меньше задержка у интерактива при параллельной закачке
+net.ipv4.tcp_notsent_lowat = 131072
+# лента: пауза между роликами не должна сбрасывать скорость к нулю
+net.ipv4.tcp_slow_start_after_idle = 0
+# клиенты за PPPoE/туннелями: не виснуть на больших пакетах
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.ip_local_port_range = 10000 65535
+net.core.somaxconn = 65535
+net.core.netdev_max_backlog = 16384
+net.ipv4.tcp_max_syn_backlog = 8192
+fs.file-max = 1048576
+EOF
+    # conntrack (его включает ufw): при переполнении новые соединения молча дропаются,
+    # а дефолтные 5 суток жизни established забивают таблицу у VPN-ноды за день
+    [ -e /proc/sys/net/netfilter/nf_conntrack_max ] && cat >> "$conf" <<EOF
+net.netfilter.nf_conntrack_max = 262144
+net.netfilter.nf_conntrack_tcp_timeout_established = 7200
+EOF
+    sysctl -q -p "$conf" || { err "sysctl не применил ${conf}."; return 1; }
+    log "Ядро: $(sysctl -n net.ipv4.tcp_congestion_control) + $(sysctl -n net.core.default_qdisc), буферы 64 МБ."
+
+    command -v nginx &>/dev/null || return 0
+    local main=/etc/nginx/nginx.conf site=/etc/nginx/conf.d/xray.conf ts
+    ts=$(date +%s)
+    cp "$main" "${main}.bak.${ts}"
+    sed -i -E 's/^(\s*worker_connections\s+)[0-9]+;/\116384;/' "$main"
+    grep -q '^\s*worker_rlimit_nofile' "$main" || sed -i '/^\s*worker_processes/a worker_rlimit_nofile 65535;' "$main"
+    if [ -f "$site" ] && grep -q 'xrxh.socket' "$site" && ! grep -q 'proxy_buffering off' "$site"; then
+        cp "$site" "${site}.bak.${ts}"
+        sed -i -E 's|^(\s*)proxy_pass http://unix:/dev/shm/xrxh.socket;|&\n\1proxy_buffering off;\n\1proxy_request_buffering off;\n\1client_max_body_size 0;\n\1proxy_read_timeout 1h;\n\1proxy_send_timeout 1h;|' "$site"
+    fi
+    if nginx -t 2>/dev/null; then
+        systemctl reload nginx
+        log "nginx: 16384 соединений на воркер, xhttp без буферизации."
+    else
+        err "nginx не принял правки - возвращаю бэкап."
+        cp "${main}.bak.${ts}" "$main"
+        [ -f "${site}.bak.${ts}" ] && cp "${site}.bak.${ts}" "$site"
+        nginx -t && systemctl reload nginx
+        return 1
+    fi
+}
+
+### ---------------------------------------------------------------------
 ### 2. nginx + заглушка + SSL (remnawave-guide)
 ### ---------------------------------------------------------------------
 install_nginx() {
@@ -410,6 +480,11 @@ server {
 
     location /xhttppath/ {
         proxy_pass http://unix:/dev/shm/xrxh.socket;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        client_max_body_size 0;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -1329,6 +1404,7 @@ full_install() {
     configure_nginx || return 1
     install_docker  || return 1
     setup_remnanode || return 1
+    tune_network    || warn "Тюнинг сети не применился - повторите: meridian tune"
     if [ -f "$PANEL_STATE" ]; then
         register_node_in_panel || warn "Нода установлена, но в панель не добавлена - повторите: meridian panel"
     fi
@@ -1378,14 +1454,15 @@ print_menu() {
     echo -e "    ${GREEN}4)${NC} Psiphon-выход           ${CYAN}SOCKS для гео-заблокированных сервисов${NC}"
     echo -e "    ${GREEN}5)${NC} Сменить заглушку        ${CYAN}20 вариантов страницы для случайных гостей${NC}"
     echo -e "    ${GREEN}6)${NC} Отключить IPv6          ${CYAN}когда адрес есть, а маршрута нет${NC}"
+    echo -e "    ${GREEN}7)${NC} Тюнинг сети             ${CYAN}BBR, буферы, nginx - видео без лагов${NC}"
     echo
     echo -e "  ${BOLD}Панель${NC}"
-    echo -e "    ${GREEN}7)${NC} Добавить ноду в панель  ${CYAN}профиль из образца + нода, по API${NC}"
-    echo -e "    ${GREEN}8)${NC} Связать две ноды        ${CYAN}вход → shadowsocks-мост → выход${NC}"
+    echo -e "    ${GREEN}8)${NC} Добавить ноду в панель  ${CYAN}профиль из образца + нода, по API${NC}"
+    echo -e "    ${GREEN}9)${NC} Связать две ноды        ${CYAN}вход → shadowsocks-мост → выход${NC}"
     echo
     echo -e "  ${BOLD}Стороннее${NC} ${YELLOW}(чужие установщики, запускаются как есть)${NC}"
-    echo -e "    ${YELLOW}9)${NC} node-accelerator        ${CYAN}оптимизация сети${NC}"
-    echo -e "   ${YELLOW}10)${NC} reverse-proxy-pro       ${CYAN}панель + reverse-proxy${NC}"
+    echo -e "   ${YELLOW}10)${NC} node-accelerator        ${CYAN}оптимизация сети${NC}"
+    echo -e "   ${YELLOW}11)${NC} reverse-proxy-pro       ${CYAN}панель + reverse-proxy${NC}"
     echo
     echo -e "    ${RED}0)${NC} Выход"
     echo
@@ -1406,6 +1483,7 @@ main() {
         link)           link_nodes_via_bridge ;;
         stub)           create_stub "${2:-}" ;;
         ipv6)           disable_ipv6 ;;
+        tune)           tune_network ;;
         accelerator)    run_node_accelerator ;;
         reverse-proxy)  run_reverse_proxy_pro ;;
         "")
@@ -1419,10 +1497,11 @@ main() {
                     4) psiphon_menu ;;
                     5) create_stub && { systemctl reload nginx 2>/dev/null; log "Заглушка обновлена."; } ;;
                     6) disable_ipv6 ;;
-                    7) register_node_in_panel ;;
-                    8) link_nodes_via_bridge ;;
-                    9) run_node_accelerator ;;
-                    10) run_reverse_proxy_pro ;;
+                    7) tune_network ;;
+                    8) register_node_in_panel ;;
+                    9) link_nodes_via_bridge ;;
+                    10) run_node_accelerator ;;
+                    11) run_reverse_proxy_pro ;;
                     0) exit 0 ;;
                     *) warn "Неверный выбор" ;;
                 esac
@@ -1431,7 +1510,7 @@ main() {
             ;;
         *)
             err "Неизвестный аргумент: $1"
-            echo "Использование: $0 [full|fail2ban|roscom|psiphon|panel|link|stub [N]|ipv6|accelerator|reverse-proxy]"
+            echo "Использование: $0 [full|fail2ban|roscom|psiphon|panel|link|stub [N]|ipv6|tune|accelerator|reverse-proxy]"
             exit 1
             ;;
     esac

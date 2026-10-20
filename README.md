@@ -37,7 +37,7 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/juhnsooqa/meridian/
 <img src="assets/install.svg" alt="Полная установка ноды" width="760">
 </div>
 
-Доступные аргументы: `full`, `fail2ban`, `roscom`, `psiphon`, `panel`, `link`, `stub`, `ipv6`, `accelerator`, `reverse-proxy`.
+Доступные аргументы: `full`, `fail2ban`, `roscom`, `psiphon`, `panel`, `link`, `stub`, `ipv6`, `tune`, `accelerator`, `reverse-proxy`.
 
 После первого запуска на сервере появляется команда `meridian` — открывает то же меню (каждый раз с последней версией скрипта с GitHub):
 
@@ -60,7 +60,7 @@ meridian psiphon    # сразу меню Psiphon
 <img src="assets/panel.svg" alt="Добавление ноды в панель" width="760">
 </div>
 
-Отдельно то же самое: пункт меню **7** или `meridian panel`. Токен и URL хранятся в `/root/.remnawave-panel.env` (chmod 600).
+Отдельно то же самое: пункт меню **8** или `meridian panel`. Токен и URL хранятся в `/root/.remnawave-panel.env` (chmod 600).
 
 Скрипт спрашивает два имени: **тег инбаунда** в конфиге (по умолчанию первая часть домена: `node1.example.com` → `node1`) и **имя профиля и ноды** в панели (по умолчанию — тот же тег, можно задать человеческое, например `Node 1`).
 
@@ -106,7 +106,7 @@ meridian psiphon    # сразу меню Psiphon
 **Связка нод** ([server-routing](https://docs.rw/learn/server-routing)): вход RU → выход за границей через Shadowsocks-мост.
 Ноды уже заведены в панели, связываются их существующие профили.
 
-Автоматически — пункт меню **8** или `meridian link`. Выбираете входную и выходную ноду из списка панели, дальше скрипт сам:
+Автоматически — пункт меню **9** или `meridian link`. Выбираете входную и выходную ноду из списка панели, дальше скрипт сам:
 
 1. дописывает инбаунд-мост `BRIDGE_<нода>` (shadowsocks, порт 9999) в профиль **выходной** ноды;
 2. включает этот инбаунд на самой ноде;
@@ -128,7 +128,7 @@ meridian psiphon    # сразу меню Psiphon
 | `panel-bridge-inbound.reference.json` | в `inbounds` профиля **выходной** ноды: SS-инбаунд `BRIDGE_IN` на порту 9999 |
 | `panel-entry-routing.reference.json` | в профиль **входной** ноды: `outbound` → в её `outbounds`, `rules` → в начало её `routing.rules` |
 
-Порядок тот же, что у пункта 7, только руками: инбаунд-мост → включить его на ноде → squad → юзер `bridge_user_001` → его **SS Password** (Users → More Actions → Detailed Info) в `password` у входной ноды → там же адрес выходной ноды и свой тег инбаунда в последнем правиле.
+Порядок тот же, что у пункта 8, только руками: инбаунд-мост → включить его на ноде → squad → юзер `bridge_user_001` → его **SS Password** (Users → More Actions → Detailed Info) в `password` у входной ноды → там же адрес выходной ноды и свой тег инбаунда в последнем правиле.
 
 **Балансер** ([xray-json-advanced](https://docs.rw/learn/xray-json-advanced)) — это клиентский конфиг, а не нода: `panel-balancer-template.reference.json` вставляется в **Advanced → Xray JSON template** виртуального хоста. Балансируемые хосты надо скрыть (Hidden) и подставить их UUID в `injectHosts.selector.values`. Блок `remnawave` панель вырежет сама, подставив вместо него outbound'ы `proxy`, `proxy-2`, … — под них уже настроены `balancers.selector` и `burstObservatory.subjectSelector`. Нужна панель 2.6.3+.
 
@@ -147,6 +147,15 @@ meridian psiphon    # сразу меню Psiphon
 ```bash
 rm /etc/sysctl.d/99-meridian-no-ipv6.conf && sysctl --system
 ```
+
+## 🚀 Тюнинг сети
+
+Против «TikTok/Instagram грузятся рывками». Применяется в конце `full`, отдельно — пункт меню **7** или `meridian tune` (можно запускать повторно).
+
+- **Ядро** (`/etc/sysctl.d/99-meridian-net.conf`): BBR + fq вместо cubic, TCP-буферы до 64 МБ под канал РФ↔Европа, без сброса скорости после паузы между роликами, MTU probing, conntrack на 262k с таймаутом 2 ч (иначе таблица забивается и новые соединения молча дропаются).
+- **nginx**: 16384 соединений на воркер вместо 1024, xhttp без буферизации (`proxy_buffering off`, `proxy_request_buffering off`) и с часовыми таймаутами — поток не копится в nginx и не рвётся через 60 секунд.
+
+Перед правкой nginx делается бэкап (`*.bak.<время>`); если `nginx -t` не проходит, бэкап возвращается сам. Откатить ядро: `rm /etc/sysctl.d/99-meridian-net.conf` и перезагрузка.
 
 ## 🎭 Заглушка
 
