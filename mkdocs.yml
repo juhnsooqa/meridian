@@ -1,0 +1,82 @@
+site_name: meridian
+site_description: Нода Remnawave под ключ — одной командой
+site_url: https://juhnsooqa.github.io/meridian/
+repo_url: https://github.com/juhnsooqa/meridian
+repo_name: juhnsooqa/meridian
+edit_uri: edit/main/docs/
+copyright: meridian · MIT · © <a href="https://github.com/juhnsooqa">juhnsooqa</a>
+
+theme:
+  name: material
+  custom_dir: overrides
+  language: ru
+  logo: images/logo.svg
+  favicon: images/logo.svg
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/weather-night
+        name: Тёмная тема
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/weather-sunny
+        name: Светлая тема
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+
+nav:
+  - Главная: index.md
+  - Начало:
+      - Установка: install.md
+      - Добавление в панель: panel.md
+      - Хосты в панели: hosts.md
+  - Возможности:
+      - Тюнинг сети: tune.md
+      - Связка нод и балансер: bridge.md
+      - Psiphon-выход: psiphon.md
+      - Заглушки: stubs.md
+      - IPv6: ipv6.md
+  - Справка:
+      - Как устроена нода: internals.md
+      - Благодарности: credits.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.keys
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/juhnsooqa
+    - icon: material/web
+      link: https://juhn.pro

@@ -279,7 +279,9 @@ disable_ipv6() {
 # Плюс nginx: по умолчанию буферизует xhttp-поток и держит всего 1024 соединения на воркер.
 tune_network() {
     log "Тюнинг сети..."
-    local conf=/etc/sysctl.d/99-meridian-net.conf cc=bbr
+    # 99-zz - чтобы применяться последним: node-accelerator и прочие 99-* иначе перебьют значения
+    local conf=/etc/sysctl.d/99-zz-meridian-net.conf cc=bbr
+    rm -f /etc/sysctl.d/99-meridian-net.conf /etc/sysctl.d/99-zz-meridian-ports.conf
     modprobe tcp_bbr 2>/dev/null
     modprobe nf_conntrack 2>/dev/null
     mkdir -p /etc/modules-load.d
