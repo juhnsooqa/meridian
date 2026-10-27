@@ -251,7 +251,10 @@ disable_ipv6() {
         return 0
     fi
 
-    ssh_src="${SSH_CONNECTION%% *}"
+    # sudo и `meridian` (bash -c) часто не передают SSH_CONNECTION - тогда берём адрес из who -m
+    ssh_src="${SSH_CONNECTION:-}"
+    ssh_src="${ssh_src%% *}"
+    [ -n "$ssh_src" ] || ssh_src=$(who -m 2>/dev/null | sed -n 's/.*(\(.*\)).*/\1/p')
     if [[ "$ssh_src" == *:*:* ]]; then
         err "Ты подключён по IPv6 (${ssh_src}) - отключение оборвёт эту сессию."
         warn "Зайди по IPv4 и повтори: meridian ipv6"
