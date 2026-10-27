@@ -236,6 +236,34 @@ block_icmp() {
     log "Ping заблокирован (бэкап правил: ${f4}.bak.${ts})."
 }
 
+# Правило bittorrent в профиле ловит только то, что распознал сниффинг xray. Сигнатуры
+# протокола (handshake, DHT, announce) режем ещё и в ядре на выходе с ноды: жалобы
+# правообладателей прилетают хостеру именно с публичных трекеров и незашифрованного пира.
+block_torrent() {
+    log "Блокировка BitTorrent на выходе с ноды..."
+    local f4=/etc/ufw/before.rules marker="# meridian-antitorrent" s
+    [ -f "$f4" ] || { err "Нет ${f4} - сначала настройте firewall (meridian full)."; return 1; }
+    modprobe xt_string || { err "Ядро без модуля xt_string - фильтр по содержимому недоступен."; return 1; }
+    echo xt_string > /etc/modules-load.d/meridian-xt_string.conf
+
+    if grep -qF "$marker" "$f4"; then
+        log "Правила уже стоят."
+    else
+        cp "$f4" "${f4}.bak.$(date +%s)"
+        local rules="${marker}"$'\n'
+        for s in "BitTorrent protocol" "peer_id=" "info_hash" "get_peers" "find_node" "announce_peer" ".torrent" "announce.php?passkey="; do
+            rules+="-A ufw-before-output -m string --algo bm --string \"${s}\" -j DROP"$'\n'
+        done
+        # Только перед первым правилом ufw-before-output: оно пропускает ESTABLISHED, а данные
+        # торрента идут уже в установленном соединении - в конце цепочки правила не сработают
+        awk -v r="$rules" '!d && /^-A ufw-before-output/ { printf "%s", r; d=1 } { print }' "$f4" > "${f4}.new" \
+            && grep -qF "$marker" "${f4}.new" && mv "${f4}.new" "$f4" \
+            || { rm -f "${f4}.new"; err "В ${f4} нет цепочки ufw-before-output."; return 1; }
+    fi
+    ufw reload >/dev/null || { err "ufw reload не прошёл - верните бэкап ${f4}.bak.*"; return 1; }
+    log "BitTorrent заблокирован: $(iptables -S ufw-before-output | grep -c -- '--string') сигнатур в ufw-before-output."
+}
+
 ### ---------------------------------------------------------------------
 ### 1.5 Отключение IPv6
 ### ---------------------------------------------------------------------
@@ -758,7 +786,8 @@ write_panel_reference_files() {
   ],
   "routing": {
     "rules": [
-      { "type": "field", "protocol": ["bittorrent"], "outboundTag": "BLOCK" },${psi_rule}
+      { "type": "field", "protocol": ["bittorrent"], "outboundTag": "BLOCK" },
+      { "type": "field", "domain": ["geosite:category-public-tracker"], "outboundTag": "BLOCK" },${psi_rule}
       { "ip": ["ext:geoip.dat:ru"], "type": "field", "outboundTag": "DIRECT" }
     ],
     "domainStrategy": "IPIfNonMatch"
@@ -865,6 +894,7 @@ EOF
     { "type": "field", "ip": ["geoip:private"], "outboundTag": "BLOCK" },
     { "type": "field", "domain": ["geosite:private"], "outboundTag": "BLOCK" },
     { "type": "field", "protocol": ["bittorrent"], "outboundTag": "BLOCK" },
+    { "type": "field", "domain": ["geosite:category-public-tracker"], "outboundTag": "BLOCK" },
     { "type": "field", "ip": ["geoip:ru"], "outboundTag": "DIRECT" },
     { "type": "field", "domain": ["geosite:category-ru"], "outboundTag": "DIRECT" },
     { "type": "field", "inboundTag": ["<ТЕГ ИНБАУНДА ВХОДНОЙ НОДЫ>"], "outboundTag": "SS_OUTBOUND_TO_EXIT" }
@@ -1452,6 +1482,7 @@ full_install() {
     # Каждый шаг опирается на предыдущий: на первой ошибке останавливаемся, а не идём дальше вслепую
     setup_firewall  || { err "Firewall не настроен, установка остановлена."; return 1; }
     block_icmp      || return 1
+    block_torrent   || warn "Блок торрентов не применился - повторите: meridian torrent"
     install_nginx   || return 1
     create_stub     || return 1
     issue_ssl       || { err "Без сертификата дальше нельзя. Исправьте DNS и запустите снова."; return 1; }
@@ -1509,6 +1540,7 @@ print_menu() {
     echo -e "    ${GREEN}5)${NC} Сменить заглушку        ${CYAN}20 вариантов страницы для случайных гостей${NC}"
     echo -e "    ${GREEN}6)${NC} Отключить IPv6          ${CYAN}когда адрес есть, а маршрута нет${NC}"
     echo -e "    ${GREEN}7)${NC} Тюнинг сети             ${CYAN}BBR, буферы, nginx - видео без лагов${NC}"
+    echo -e "   ${GREEN}12)${NC} Блок торрентов          ${CYAN}сигнатуры BitTorrent в ufw - без жалоб хостеру${NC}"
     echo
     echo -e "  ${BOLD}Панель${NC}"
     echo -e "    ${GREEN}8)${NC} Добавить ноду в панель  ${CYAN}профиль из образца + нода, по API${NC}"
@@ -1538,6 +1570,7 @@ main() {
         stub)           create_stub "${2:-}" ;;
         ipv6)           disable_ipv6 ;;
         tune)           tune_network ;;
+        torrent)        block_torrent ;;
         accelerator)    run_node_accelerator ;;
         reverse-proxy)  run_reverse_proxy_pro ;;
         "")
@@ -1556,6 +1589,7 @@ main() {
                     9) link_nodes_via_bridge ;;
                     10) run_node_accelerator ;;
                     11) run_reverse_proxy_pro ;;
+                    12) block_torrent ;;
                     0) exit 0 ;;
                     *) warn "Неверный выбор" ;;
                 esac
@@ -1564,7 +1598,7 @@ main() {
             ;;
         *)
             err "Неизвестный аргумент: $1"
-            echo "Использование: $0 [full|fail2ban|roscom|psiphon|panel|link|stub [N]|ipv6|tune|accelerator|reverse-proxy]"
+            echo "Использование: $0 [full|fail2ban|roscom|psiphon|panel|link|stub [N]|ipv6|tune|torrent|accelerator|reverse-proxy]"
             exit 1
             ;;
     esac
