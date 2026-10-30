@@ -161,6 +161,8 @@ rm /etc/sysctl.d/99-meridian-no-ipv6.conf && sysctl --system
 
 Торрент с ноды — это жалоба правообладателя хостеру и риск отключения сервера. Применяется в `full` сразу после firewall, отдельно — пункт меню **12** или `meridian torrent` (повторный запуск ничего не дублирует).
 
+Команда требует активный UFW. Если `ufw status` показывает `inactive`, сначала настройте firewall с учётом SSH-порта и портов ноды (`meridian full`), затем повторите `meridian torrent`. Наличие блока в файле не означает, что фильтрация работает: после `ufw reload` скрипт проверяет каждое из 8 правил в активной IPv4-цепочке и возвращает ошибку, если проверка не прошла.
+
 - **В профиле** (образец для `meridian panel`): `protocol: bittorrent` и `geosite:category-public-tracker` → `BLOCK` — клиент не получает пиров с публичных трекеров.
 - **В ядре** (`/etc/ufw/before.rules`, блок `# meridian-antitorrent`): 8 сигнатур протокола (`BitTorrent protocol`, `info_hash`, `peer_id=`, команды DHT, `.torrent`, `announce.php?passkey=`) дропаются на выходе с ноды — даже то, что не распознал сниффинг xray.
 

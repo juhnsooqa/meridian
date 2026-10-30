@@ -241,17 +241,24 @@ block_icmp() {
 # правообладателей прилетают хостеру именно с публичных трекеров и незашифрованного пира.
 block_torrent() {
     log "Блокировка BitTorrent на выходе с ноды..."
-    local f4=/etc/ufw/before.rules marker="# meridian-antitorrent" s
+    local f4=/etc/ufw/before.rules marker="# meridian-antitorrent" s status
+    local -a signatures=("BitTorrent protocol" "peer_id=" "info_hash" "get_peers" "find_node" "announce_peer" ".torrent" "announce.php?passkey=")
+    status=$(LC_ALL=C ufw status) || { err "Не удалось проверить состояние UFW."; return 1; }
+    if ! grep -qx 'Status: active' <<< "$status"; then
+        err "UFW выключен: torrent-blocker требует активный firewall. Правила не применены."
+        warn "Сначала настройте firewall (meridian full), проверив SSH-порт и порты ноды, затем повторите: meridian torrent"
+        return 1
+    fi
     [ -f "$f4" ] || { err "Нет ${f4} - сначала настройте firewall (meridian full)."; return 1; }
     modprobe xt_string || { err "Ядро без модуля xt_string - фильтр по содержимому недоступен."; return 1; }
-    echo xt_string > /etc/modules-load.d/meridian-xt_string.conf
+    echo xt_string > /etc/modules-load.d/meridian-xt_string.conf || { err "Не удалось сохранить автозагрузку xt_string."; return 1; }
 
     if grep -qF "$marker" "$f4"; then
-        log "Правила уже стоят."
+        log "Правила найдены в файле; применяем и проверяем их..."
     else
         cp "$f4" "${f4}.bak.$(date +%s)"
         local rules="${marker}"$'\n'
-        for s in "BitTorrent protocol" "peer_id=" "info_hash" "get_peers" "find_node" "announce_peer" ".torrent" "announce.php?passkey="; do
+        for s in "${signatures[@]}"; do
             rules+="-A ufw-before-output -m string --algo bm --string \"${s}\" -j DROP"$'\n'
         done
         # Только перед первым правилом ufw-before-output: оно пропускает ESTABLISHED, а данные
@@ -261,7 +268,13 @@ block_torrent() {
             || { rm -f "${f4}.new"; err "В ${f4} нет цепочки ufw-before-output."; return 1; }
     fi
     ufw reload >/dev/null || { err "ufw reload не прошёл - верните бэкап ${f4}.bak.*"; return 1; }
-    log "BitTorrent заблокирован: $(iptables -S ufw-before-output | grep -c -- '--string') сигнатур в ufw-before-output."
+    for s in "${signatures[@]}"; do
+        if ! iptables -w -t filter -C ufw-before-output -m string --algo bm --string "$s" -j DROP; then
+            err "Не найдено активное правило BitTorrent для «${s}». Блокировка не подтверждена."
+            return 1
+        fi
+    done
+    log "Применено ${#signatures[@]} сигнатур BitTorrent в ufw-before-output (IPv4)."
 }
 
 ### ---------------------------------------------------------------------
